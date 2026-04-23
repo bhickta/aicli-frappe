@@ -10,6 +10,16 @@ from pydantic import BaseModel
 CONFIG_DIR = Path.home() / ".config" / "aicli"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 
+# Support for Frappe Environment
+try:
+    import frappe
+    if frappe.local.site:
+        DATA_DIR = Path(frappe.get_site_path("public", "files", "aicli_data"))
+    else:
+        DATA_DIR = Path("data")
+except:
+    DATA_DIR = Path("data")
+
 PROVIDER_TYPE_CHOICES = ["ollama", "vllm", "lmstudio", "openai", "anthropic", "gemini"]
 
 

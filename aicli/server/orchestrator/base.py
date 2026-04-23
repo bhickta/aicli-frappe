@@ -13,11 +13,11 @@ class PipelineAbortedError(BaseException):
 
 
 class ConsoleRedirect:
-    """Redirects rich console prints to an SSE queue, stripping markup tags."""
+    """Redirects rich console prints to an SSE queue or Frappe realtime."""
 
     _TAG_RE = re.compile(r"\[/?(?:[a-z ]+|#[0-9a-f]{6})\]")
 
-    def __init__(self, event_queue: queue.Queue, abort_event: threading.Event | None = None) -> None:
+    def __init__(self, event_queue: queue.Queue | None = None, abort_event: threading.Event | None = None) -> None:
         self.queue = event_queue
         self.abort_event = abort_event
 
@@ -25,13 +25,22 @@ class ConsoleRedirect:
         if self.abort_event and self.abort_event.is_set():
             raise PipelineAbortedError("Pipeline aborted by user")
         clean_msg = self._TAG_RE.sub("", str(msg))
-        self.queue.put({"type": "log", "message": clean_msg})
+        payload = {"type": "log", "message": clean_msg}
+        if self.queue:
+            self.queue.put(payload)
+        
+        try:
+            import frappe
+            if frappe.local.site:
+                frappe.publish_realtime("aicli_progress", payload)
+        except:
+            pass
 
 
 class SSEProgressContext:
-    """A duck-typed rich.progress replacement that emits Server-Sent Events."""
+    """A duck-typed rich.progress replacement that emits Server-Sent Events or Frappe realtime."""
 
-    def __init__(self, event_queue: queue.Queue, abort_event: threading.Event | None = None) -> None:
+    def __init__(self, event_queue: queue.Queue | None = None, abort_event: threading.Event | None = None) -> None:
         self.queue = event_queue
         self.abort_event = abort_event
         self.tasks: Dict[int, Dict[str, Any]] = {}
@@ -42,12 +51,22 @@ class SSEProgressContext:
             raise PipelineAbortedError("Pipeline aborted by user")
         task_id = len(self.tasks)
         self.tasks[task_id] = {"description": description, "total": total, "completed": 0}
-        self.queue.put({
+        payload = {
             "type": "task_add",
             "task_id": task_id,
             "description": description,
             "total": total,
-        })
+        }
+        if self.queue:
+            self.queue.put(payload)
+        
+        try:
+            import frappe
+            if frappe.local.site:
+                frappe.publish_realtime("aicli_progress", payload)
+        except:
+            pass
+            
         return task_id
 
     def advance(self, task_id: int, advance: float = 1) -> None:
@@ -56,12 +75,21 @@ class SSEProgressContext:
         if task_id not in self.tasks:
             return
         self.tasks[task_id]["completed"] += advance
-        self.queue.put({
+        payload = {
             "type": "task_progress",
             "task_id": task_id,
             "completed": self.tasks[task_id]["completed"],
             "total": self.tasks[task_id]["total"],
-        })
+        }
+        if self.queue:
+            self.queue.put(payload)
+            
+        try:
+            import frappe
+            if frappe.local.site:
+                frappe.publish_realtime("aicli_progress", payload)
+        except:
+            pass
 
     def stop(self) -> None:
         pass
@@ -74,7 +102,7 @@ class SSEProgressContext:
 
 
 class BaseOrchestrator:
-    """Runs a pipeline in a background thread and yields SSE events."""
+    """Runs a pipeline in a background thread and yields SSE events or Frappe realtime."""
 
     def __init__(self) -> None:
         self.queue: queue.Queue = queue.Queue()
@@ -121,15 +149,44 @@ class BaseOrchestrator:
     # ── Private ─────────────────────────────────────────────────────
 
     def _run_wrapper(self, worker_target: Callable, *args: Any, **kwargs: Any) -> None:
-        self.queue.put({"type": "status", "status": "started"})
+        start_payload = {"type": "status", "status": "started"}
+        self.queue.put(start_payload)
+        try:
+            import frappe
+            if frappe.local.site:
+                frappe.publish_realtime("aicli_progress", start_payload)
+        except:
+            pass
+            
         try:
             worker_target(self, *args, **kwargs)
-            self.queue.put({"type": "status", "status": "completed"})
+            end_payload = {"type": "status", "status": "completed"}
+            self.queue.put(end_payload)
+            try:
+                import frappe
+                if frappe.local.site:
+                    frappe.publish_realtime("aicli_progress", end_payload)
+            except:
+                pass
         except Exception as e:
-            self.queue.put({"type": "status", "status": "error", "message": str(e)})
+            err_payload = {"type": "status", "status": "error", "message": str(e)}
+            self.queue.put(err_payload)
+            try:
+                import frappe
+                if frappe.local.site:
+                    frappe.publish_realtime("aicli_progress", err_payload)
+            except:
+                pass
         except BaseException as e:
             if type(e).__name__ == "PipelineAbortedError":
-                self.queue.put({"type": "status", "status": "error", "message": "Pipeline aborted by user."})
+                ab_payload = {"type": "status", "status": "error", "message": "Pipeline aborted by user."}
+                self.queue.put(ab_payload)
+                try:
+                    import frappe
+                    if frappe.local.site:
+                        frappe.publish_realtime("aicli_progress", ab_payload)
+                except:
+                    pass
             else:
                 raise
         finally:
