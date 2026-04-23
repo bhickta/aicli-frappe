@@ -8,53 +8,33 @@ requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    # "frappe~=15.0.0" # Installed and managed by bench.
+    "typer>=0.12.3",
+    "rich>=13.7.1",
+    "openai>=1.14.2",
+    "pydantic-settings>=2.2.1",
+    "Pillow>=10.2.0",
+    "openpyxl>=3.1.0",
+    "sentence-transformers>=3.4.1",
+    "faster-whisper>=1.0.0",
+    "numpy>=1.26.0",
+    "pdf2image>=1.16.0",
+    "pyyaml>=6.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "sse-starlette>=2.0.0",
+    "python-multipart>=0.0.26",
+    "langchain>=1.2.15",
+    "langchain-openai>=1.1.14",
+    "langchain-anthropic>=1.4.1",
+    "langchain-google-genai>=4.2.2",
+    "langchain-ollama>=1.1.0",
+    "langchain-text-splitters>=1.1.2"
 ]
 
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
 
-# These dependencies are only installed when developer mode is enabled
-[tool.bench.dev-dependencies]
-# package_name = "~=1.1.0"
-
-# These apt dependencies will be installed from Ubuntu repositories when you host your app on Frappe Cloud
-[deploy.dependencies.apt]
-packages = []
-
 [tool.ruff]
 line-length = 110
 target-version = "py310"
-
-[tool.ruff.lint]
-select = [
-    "F",
-    "E",
-    "W",
-    "I",
-    "UP",
-    "B",
-    "RUF",
-]
-ignore = [
-    "B017", # assertRaises(Exception) - should be more specific
-    "B018", # useless expression, not assigned to anything
-    "B023", # function doesn't bind loop variable - will have last iteration's value
-    "B904", # raise inside except without from
-    "E101", # indentation contains mixed spaces and tabs
-    "E402", # module level import not at top of file
-    "E501", # line too long
-    "E741", # ambiguous variable name
-    "F401", # "unused" imports
-    "F403", # can't detect undefined names from * import
-    "F405", # can't detect undefined names from * import
-    "F722", # syntax error in forward type annotation
-    "W191", # indentation contains tabs
-]
-typing-modules = ["frappe.types.DF"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "tab"
-docstring-code-format = true

@@ -1,0 +1,13 @@
+{
+ "actions": [], "creation": "2026-04-23 03:00:00.000000", "doctype": "DocType", "engine": "InnoDB",
+ "field_order": [ "pdf_file", "page_number", "image_path", "classification", "transcription", "processed" ],
+ "fields": [
+  { "fieldname": "pdf_file", "fieldtype": "Data", "label": "PDF File", "in_list_view": 1 },
+  { "fieldname": "page_number", "fieldtype": "Int", "label": "Page Number", "in_list_view": 1 },
+  { "fieldname": "image_path", "fieldtype": "Data", "label": "Image Path" },
+  { "fieldname": "classification", "fieldtype": "Data", "label": "Classification" },
+  { "fieldname": "transcription", "fieldtype": "Long Text", "label": "Transcription" },
+  { "fieldname": "processed", "fieldtype": "Check", "label": "Processed" }
+ ],
+ "module": "AICLI", "name": "UPSC Page", "permissions": [ { "create": 1, "delete": 1, "read": 1, "role": "System Manager", "write": 1 } ]
+}
