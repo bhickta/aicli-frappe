@@ -2,7 +2,7 @@ import frappe
 import json
 import os
 from aicli.config import config as aicli_config, DATA_DIR
-from aicli.server.repositories.analyze_repository import AnalyzeRepository
+from aicli.domains.analyze.database import AnalyzeDB
 
 @frappe.whitelist(allow_guest=True)
 def get_csrf_token():
@@ -41,33 +41,21 @@ def list_models():
 
 @frappe.whitelist()
 def get_pdfs():
-    repo = AnalyzeRepository()
-    pdfs = repo.get_all_pdfs()
-    repo.close()
-    
-    # Return as list of dicts for UI compatibility
+    db = AnalyzeDB()
+    pdfs = db.get_all_pdfs()
     return [{"id": p, "filename": p} for p in pdfs]
 
 @frappe.whitelist()
 def get_pipeline_status():
-    repo = AnalyzeRepository()
-    status = repo.get_processing_status()
-    repo.close()
-    return status
+    return AnalyzeDB().get_processing_status()
 
 @frappe.whitelist()
 def get_pages(pdf_file):
-    repo = AnalyzeRepository()
-    pages = repo.get_pages_for_pdf(pdf_file)
-    repo.close()
-    return pages
+    return AnalyzeDB().get_pages_for_pdf(pdf_file)
 
 @frappe.whitelist()
 def get_answers(pdf_file):
-    repo = AnalyzeRepository()
-    answers = [a for a in repo.get_all_answers() if a.get("pdf_file") == pdf_file]
-    repo.close()
-    return answers
+    return [a for a in AnalyzeDB().get_all_answers() if a.get("pdf_file") == pdf_file]
 
 @frappe.whitelist()
 def get_dimensions(answer_id):
@@ -78,17 +66,11 @@ def get_dimensions(answer_id):
 
 @frappe.whitelist()
 def get_aggregations():
-    repo = AnalyzeRepository()
-    aggs = repo.get_all_aggregations()
-    repo.close()
-    # Frontend expects dict or list. The AnalyzeApiClient maps it nicely.
-    return aggs
+    return AnalyzeDB().get_all_aggregations()
 
 @frappe.whitelist()
 def reset_pipeline(step):
-    repo = AnalyzeRepository()
-    repo.reset_from_step(int(step))
-    repo.close()
+    AnalyzeDB().reset_from_step(int(step))
     return {"ok": True}
 
 @frappe.whitelist()
@@ -105,9 +87,7 @@ def stop_pipeline():
 
 @frappe.whitelist()
 def delete_pdf(pdf_file):
-    repo = AnalyzeRepository()
-    repo.delete_pdf_data(pdf_file)
-    repo.close()
+    AnalyzeDB().delete_pdf_data(pdf_file)
     return {"ok": True}
 
 @frappe.whitelist()
