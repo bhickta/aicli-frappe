@@ -1,61 +1,56 @@
-/** Class-based API client for the Analyze domain — all HTTP in one place. */
 import { API_BASE } from '../constants/api.constants'
+import { frappe } from './FrappeClient'
 
 export class AnalyzeApiClient {
-  private readonly base = `${API_BASE}/api/analyze`
-
   async fetchStatus(): Promise<any> {
-    return this.get('/status')
+    return frappe.call('get_pipeline_status')
   }
 
   async fetchPdfs(): Promise<any[]> {
-    return this.get('/pdfs')
+    return frappe.call('get_pdfs')
   }
 
-  async fetchPages(pdf: { id: number }): Promise<any[]> {
-    return this.get(`/pdfs/${pdf.id}/pages`)
+  async fetchPages(pdf: { id: string | number }): Promise<any[]> {
+    return frappe.call('get_pages', { pdf_file: pdf.id })
   }
 
-  async fetchAnswers(pdf: { id: number }): Promise<any[]> {
-    return this.get(`/pdfs/${pdf.id}/answers`)
+  async fetchAnswers(pdf: { id: string | number }): Promise<any[]> {
+    return frappe.call('get_answers', { pdf_file: pdf.id })
   }
 
-  async fetchDimensions(answerId: number): Promise<any[]> {
-    return this.get(`/answers/${answerId}/dimensions`)
+  async fetchDimensions(answerId: string | number): Promise<any[]> {
+    return frappe.call('get_dimensions', { answer_id: answerId })
   }
 
   async fetchAggregations(): Promise<any[]> {
-    const data = await this.get('/aggregate')
+    const data = await frappe.call('get_aggregations')
     if (!data) return []
     if (Array.isArray(data)) return data
     return Object.keys(data).map(k => ({ dimension_name: k, ...data[k] }))
   }
 
   async resetPipeline(step: number): Promise<any> {
-    return this.post('/reset', { step })
+    return frappe.call('reset_pipeline', { step })
   }
 
   async retryErrors(): Promise<any> {
-    return this.post('/retry-errors', {})
+    return frappe.call('retry_errors')
   }
 
   async runPipeline(config: Record<string, unknown>): Promise<any> {
-    return this.post('/run', config)
+    return frappe.call('run_analyze', config)
   }
 
   async stopPipeline(): Promise<any> {
-    return this.post('/stop', {})
+    return frappe.call('stop_pipeline')
   }
 
   async fetchOrchestratorStatus(): Promise<any> {
-    return this.get('/orchestrator-status')
+    return frappe.call('get_pipeline_status')
   }
 
   async deletePdf(pdfFile: string): Promise<any> {
-    const res = await fetch(`${this.base}/pdfs/${encodeURIComponent(pdfFile)}`, {
-      method: 'DELETE',
-    })
-    return this.handleResponse(res)
+    return frappe.call('delete_pdf', { pdf_file: pdfFile })
   }
 
   async uploadPdfs(files: FileList): Promise<any> {
@@ -63,47 +58,33 @@ export class AnalyzeApiClient {
     for (let i = 0; i < files.length; i++) {
       formData.append('files', files[i])
     }
-    const res = await fetch(`${this.base}/upload`, {
+    
+    // For file uploads, we bypass FrappeClient to use FormData
+    const res = await fetch(`${API_BASE}/api/method/aicli.api.upload_pdfs`, {
       method: 'POST',
+      headers: {
+        'Accept': 'application/json'
+      },
       body: formData,
     })
-    return this.handleResponse(res)
+    
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`)
+    }
+    return res.json()
   }
 
   createStream(): EventSource {
-    return new EventSource(`${this.base}/stream`)
+    // Return a dummy stream for now, UI will poll status via orchestrator instead
+    return new EventSource(`${API_BASE}/api/method/aicli.api.stream_status`)
   }
 
   imageUrl(pdfFile: string, pageNumber: number): string {
     const paddedPage = String(pageNumber).padStart(4, '0')
     const pdfName = pdfFile.replace(/\.pdf$/i, '')
-    return `${this.base}/images/${encodeURIComponent(pdfName)}/page_${paddedPage}.png`
-  }
-
-  // ── Private Helpers ──────────────────────────────────────────
-
-  private async get(path: string): Promise<any> {
-    const res = await fetch(`${this.base}${path}`)
-    return this.handleResponse(res)
-  }
-
-  private async post(path: string, body: Record<string, unknown>): Promise<any> {
-    const res = await fetch(`${this.base}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return this.handleResponse(res)
-  }
-
-  private async handleResponse(res: Response): Promise<any> {
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ detail: 'Request failed' }))
-      throw new Error(body.detail ?? `HTTP ${res.status}`)
-    }
-    return res.json()
+    // Update to correct path based on Frappe's file routing, assuming public/files/aicli_data
+    return `${API_BASE}/files/aicli_data/images/${encodeURIComponent(pdfName)}/page_${paddedPage}.png`
   }
 }
 
-/** Singleton instance for convenience. */
 export const analyzeApi = new AnalyzeApiClient()

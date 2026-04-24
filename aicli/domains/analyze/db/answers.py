@@ -1,17 +1,16 @@
 import json
+import frappe
 
 class AnswerMixin:
-    """Operations related to the 'answers' table."""
+    """Operations related to the 'UPSC Answer' DocType."""
     def get_unsegmented_pdfs(self) -> list[str]:
-        conn = self._get_conn()
-        rows = conn.execute("""
-            SELECT DISTINCT p.pdf_file FROM pages p
-            WHERE p.classification IN ('answer', 'continuation')
-              AND p.transcription IS NOT NULL
-              AND p.pdf_file NOT IN (SELECT DISTINCT pdf_file FROM answers)
-            ORDER BY p.pdf_file
-        """).fetchall()
-        return [r["pdf_file"] for r in rows]
+        pages = frappe.get_all("UPSC Page", filters={"classification": ["in", ["answer", "continuation"]], "transcription": ["is", "set"]}, fields=["pdf_file"])
+        pdf_files = list(set([p.pdf_file for p in pages]))
+        
+        answers = frappe.get_all("UPSC Answer", fields=["pdf_file"])
+        answered_pdfs = set([a.pdf_file for a in answers])
+        
+        return sorted(list(set(pdf_files) - answered_pdfs))
 
     def insert_answer(
         self,
@@ -25,34 +24,33 @@ class AnswerMixin:
         word_limit: int | None,
         raw_text: str,
         page_ids: list[int],
-    ) -> int:
-        conn = self._get_conn()
-        cur = conn.execute(
-            "INSERT INTO answers (pdf_file, candidate_name, upsc_id, test_code, question_number, "
-            "question_text, question_directive, word_limit, raw_text, page_ids, segmentation_done) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
-            (
-                pdf_file,
-                candidate_name,
-                upsc_id,
-                test_code,
-                question_number,
-                question_text,
-                question_directive,
-                word_limit,
-                raw_text,
-                json.dumps(page_ids),
-            ),
-        )
-        conn.commit()
-        return cur.lastrowid
+    ) -> str:
+        doc = frappe.get_doc({
+            "doctype": "UPSC Answer",
+            "pdf_file": pdf_file,
+            "candidate_name": candidate_name,
+            "upsc_id": upsc_id,
+            "test_code": test_code,
+            "question_number": question_number,
+            "question_text": question_text,
+            "question_directive": question_directive,
+            "word_limit": word_limit,
+            "raw_text": raw_text,
+            "page_ids": json.dumps(page_ids),
+            "segmentation_done": 1
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return doc.name
 
     def get_all_answers(self) -> list[dict]:
-        conn = self._get_conn()
-        rows = conn.execute("SELECT * FROM answers ORDER BY pdf_file, question_number").fetchall()
-        return [dict(r) for r in rows]
+        rows = frappe.get_all("UPSC Answer", fields=["*"], order_by="pdf_file asc, question_number asc")
+        for r in rows: r["id"] = r["name"]
+        return rows
 
-    def get_answer_by_id(self, answer_id: int) -> dict | None:
-        conn = self._get_conn()
-        row = conn.execute("SELECT * FROM answers WHERE id = ?", (answer_id,)).fetchone()
-        return dict(row) if row else None
+    def get_answer_by_id(self, answer_id: str) -> dict | None:
+        if frappe.db.exists("UPSC Answer", answer_id):
+            row = frappe.get_doc("UPSC Answer", answer_id).as_dict()
+            row["id"] = row["name"]
+            return row
+        return None
