@@ -16,7 +16,7 @@ export class SettingsApiClient {
 
   async fetchModels(): Promise<any> {
     const res = await frappe.call('list_models')
-    return res.models || []
+    return res || { models: [] }
   }
 }
 

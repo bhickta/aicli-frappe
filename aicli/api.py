@@ -34,10 +34,10 @@ def list_models():
     doc = frappe.get_single("AICLI Settings")
     provider_type = doc.provider_type
     if provider_type == "lmstudio":
-        return LMStudioProvider.list_models()
+        return {"models": LMStudioProvider.list_models()}
     elif provider_type == "ollama":
-        return OllamaProvider.list_models()
-    return []
+        return {"models": OllamaProvider.list_models()}
+    return {"models": []}
 
 @frappe.whitelist()
 def get_pdfs():

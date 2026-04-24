@@ -60,10 +60,12 @@ export class AnalyzeApiClient {
     }
     
     // For file uploads, we bypass FrappeClient to use FormData
+    const csrfToken = await frappe.getCsrfToken()
     const res = await fetch(`${API_BASE}/api/method/aicli.api.upload_pdfs`, {
       method: 'POST',
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'X-Frappe-CSRF-Token': csrfToken
       },
       body: formData,
     })

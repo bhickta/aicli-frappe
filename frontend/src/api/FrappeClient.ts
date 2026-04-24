@@ -14,7 +14,7 @@ export class FrappeClient {
     return FrappeClient.instance
   }
 
-  async call(method: string, args: any = {}): Promise<any> {
+  async getCsrfToken(): Promise<string> {
     if (!this.csrfToken) {
       try {
         const tokenRes = await fetch(`${this.baseUrl}/api/method/aicli.api.get_csrf_token`)
@@ -24,6 +24,11 @@ export class FrappeClient {
         console.warn("Could not fetch CSRF token", e)
       }
     }
+    return this.csrfToken || ""
+  }
+
+  async call(method: string, args: any = {}): Promise<any> {
+    await this.getCsrfToken()
 
     const url = `${this.baseUrl}/api/method/aicli.api.${method}`
     const headers: Record<string, string> = {
