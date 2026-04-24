@@ -330,11 +330,7 @@ async function refreshModels() {
 
 async function loadProviders() {
   try {
-    const res = await fetch(`${API_BASE}/api/settings/providers`)
-    if (res.ok) {
-      const data = await res.json()
-      providers.value = data.providers
-    }
+    providers.value = await settingsApi.fetchProviders()
   } catch (err) {
     console.error('Failed to load providers:', err)
   }
@@ -342,14 +338,13 @@ async function loadProviders() {
 
 async function loadSettings() {
   try {
-    const res = await fetch(`${API_BASE}/api/settings`)
-    if (res.ok) {
-      const data = await res.json()
-      if (!data.analyze_step_models) {
-        data.analyze_step_models = {}
-      }
-      settings.value = data
+    const data = await settingsApi.fetchSettings()
+    if (!data.analyze_step_models) {
+      data.analyze_step_models = {}
+    } else if (typeof data.analyze_step_models === 'string') {
+      try { data.analyze_step_models = JSON.parse(data.analyze_step_models) } catch(e){}
     }
+    settings.value = data
   } catch (err) {
     console.error('Failed to load settings:', err)
   }
@@ -357,18 +352,9 @@ async function loadSettings() {
 
 async function saveSettings() {
   try {
-    const res = await fetch(`${API_BASE}/api/settings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings.value)
-    })
-    if (res.ok) {
-      showSuccess.value = true
-      setTimeout(() => showSuccess.value = false, 3000)
-    } else {
-      errorMessage.value = 'Failed to update settings.'
-      setTimeout(() => errorMessage.value = '', 3000)
-    }
+    await settingsApi.updateSettings(settings.value)
+    showSuccess.value = true
+    setTimeout(() => showSuccess.value = false, 3000)
   } catch (err: any) {
     errorMessage.value = 'Error saving settings: ' + err.message
     setTimeout(() => errorMessage.value = '', 3000)
