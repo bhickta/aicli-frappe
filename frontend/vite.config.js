@@ -12,5 +12,9 @@ export default defineConfig({
         changeOrigin: true,
       }
     }
+  },
+  build: {
+    outDir: '../aicli/public',
+    emptyOutDir: true
   }
 })

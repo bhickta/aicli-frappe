@@ -4,6 +4,10 @@ import os
 from aicli.config import config as aicli_config, DATA_DIR
 from aicli.server.repositories.analyze_repository import AnalyzeRepository
 
+@frappe.whitelist(allow_guest=True)
+def get_csrf_token():
+    return frappe.sessions.get_csrf_token()
+
 @frappe.whitelist()
 def get_settings():
     doc = frappe.get_single("AICLI Settings")
