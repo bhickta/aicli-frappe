@@ -1,0 +1,184 @@
+{
+    "actions": [],
+    "creation": "2026-04-23 03:00:00.000000",
+    "doctype": "DocType",
+    "issingle": 1,
+    "field_order": [
+        "provider_tab",
+        "provider_type",
+        "model_name",
+        "column_break_1",
+        "ollama_base_url",
+        "ollama_api_key",
+        "lm_studio_base_url",
+        "lm_studio_api_key",
+        "upsc_analyze_tab",
+        "analyze_max_tokens",
+        "analyze_temperature",
+        "column_break_2",
+        "segmenter_max_tokens",
+        "segmenter_max_retries",
+        "aggregation_chunk_size",
+        "analyze_step_models",
+        "video_notes_tab",
+        "notes_temperature",
+        "notes_max_tokens",
+        "notes_chunk_size",
+        "news_tab",
+        "news_batch_size",
+        "news_merge_temperature",
+        "news_merge_max_tokens",
+        "system_tab",
+        "whisper_batch_size",
+        "whisper_beam_size"
+    ],
+    "fields": [
+        {
+            "fieldname": "provider_tab",
+            "fieldtype": "Tab Break",
+            "label": "Provider"
+        },
+        {
+            "fieldname": "provider_type",
+            "fieldtype": "Select",
+            "label": "Provider Type",
+            "options": "ollama\nlmstudio\nvllm\nopenai\nanthropic\ngemini"
+        },
+        {
+            "fieldname": "model_name",
+            "fieldtype": "Data",
+            "label": "Global Default Model"
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "ollama_base_url",
+            "fieldtype": "Data",
+            "label": "Ollama Base URL"
+        },
+        {
+            "fieldname": "ollama_api_key",
+            "fieldtype": "Password",
+            "label": "Ollama API Key"
+        },
+        {
+            "fieldname": "lm_studio_base_url",
+            "fieldtype": "Data",
+            "label": "LM Studio Base URL"
+        },
+        {
+            "fieldname": "lm_studio_api_key",
+            "fieldtype": "Password",
+            "label": "LM Studio API Key"
+        },
+        {
+            "fieldname": "upsc_analyze_tab",
+            "fieldtype": "Tab Break",
+            "label": "UPSC Analyze"
+        },
+        {
+            "fieldname": "analyze_max_tokens",
+            "fieldtype": "Int",
+            "label": "Analyze Max Tokens"
+        },
+        {
+            "fieldname": "analyze_temperature",
+            "fieldtype": "Float",
+            "label": "Analyze Temperature"
+        },
+        {
+            "fieldname": "column_break_2",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "segmenter_max_tokens",
+            "fieldtype": "Int",
+            "label": "Segmenter Max Tokens"
+        },
+        {
+            "fieldname": "segmenter_max_retries",
+            "fieldtype": "Int",
+            "label": "Segmenter Max Retries"
+        },
+        {
+            "fieldname": "aggregation_chunk_size",
+            "fieldtype": "Int",
+            "label": "Aggregation Chunk Size"
+        },
+        {
+            "fieldname": "analyze_step_models",
+            "fieldtype": "Small Text",
+            "label": "Step-Specific Models (JSON)"
+        },
+        {
+            "fieldname": "video_notes_tab",
+            "fieldtype": "Tab Break",
+            "label": "Video Notes"
+        },
+        {
+            "fieldname": "notes_temperature",
+            "fieldtype": "Float",
+            "label": "Notes Temperature"
+        },
+        {
+            "fieldname": "notes_max_tokens",
+            "fieldtype": "Int",
+            "label": "Notes Max Tokens"
+        },
+        {
+            "fieldname": "notes_chunk_size",
+            "fieldtype": "Int",
+            "label": "Notes Chunk Size"
+        },
+        {
+            "fieldname": "news_tab",
+            "fieldtype": "Tab Break",
+            "label": "News"
+        },
+        {
+            "fieldname": "news_batch_size",
+            "fieldtype": "Int",
+            "label": "News Batch Size"
+        },
+        {
+            "fieldname": "news_merge_temperature",
+            "fieldtype": "Float",
+            "label": "News Merge Temperature"
+        },
+        {
+            "fieldname": "news_merge_max_tokens",
+            "fieldtype": "Int",
+            "label": "News Merge Max Tokens"
+        },
+        {
+            "fieldname": "system_tab",
+            "fieldtype": "Tab Break",
+            "label": "System"
+        },
+        {
+            "fieldname": "whisper_batch_size",
+            "fieldtype": "Int",
+            "label": "Whisper Batch Size"
+        },
+        {
+            "fieldname": "whisper_beam_size",
+            "fieldtype": "Int",
+            "label": "Whisper Beam Size"
+        }
+    ],
+    "modified": "2026-04-23 03:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "AICLI",
+    "name": "AICLI Settings",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "read": 1,
+            "role": "System Manager",
+            "write": 1
+        }
+    ]
+}

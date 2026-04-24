@@ -1,0 +1,89 @@
+{
+    "actions": [],
+    "creation": "2026-04-23 03:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "pdf_file",
+        "candidate_name",
+        "upsc_id",
+        "test_code",
+        "question_number",
+        "question_text",
+        "question_directive",
+        "word_limit",
+        "raw_text",
+        "page_ids",
+        "segmentation_done"
+    ],
+    "fields": [
+        {
+            "fieldname": "pdf_file",
+            "fieldtype": "Data",
+            "label": "PDF File",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "candidate_name",
+            "fieldtype": "Data",
+            "label": "Candidate Name",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "upsc_id",
+            "fieldtype": "Data",
+            "label": "UPSC ID"
+        },
+        {
+            "fieldname": "test_code",
+            "fieldtype": "Data",
+            "label": "Test Code"
+        },
+        {
+            "fieldname": "question_number",
+            "fieldtype": "Data",
+            "label": "Question Number"
+        },
+        {
+            "fieldname": "question_text",
+            "fieldtype": "Long Text",
+            "label": "Question Text"
+        },
+        {
+            "fieldname": "question_directive",
+            "fieldtype": "Data",
+            "label": "Question Directive"
+        },
+        {
+            "fieldname": "word_limit",
+            "fieldtype": "Int",
+            "label": "Word Limit"
+        },
+        {
+            "fieldname": "raw_text",
+            "fieldtype": "Long Text",
+            "label": "Raw Text"
+        },
+        {
+            "fieldname": "page_ids",
+            "fieldtype": "Data",
+            "label": "Page IDs"
+        },
+        {
+            "fieldname": "segmentation_done",
+            "fieldtype": "Check",
+            "label": "Segmentation Done"
+        }
+    ],
+    "module": "AICLI",
+    "name": "UPSC Answer",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "read": 1,
+            "role": "System Manager",
+            "write": 1
+        }
+    ]
+}
