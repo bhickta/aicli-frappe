@@ -14,6 +14,7 @@ const showMarkdown = ref(false)
 const selectedFile = ref<File | null>(null)
 const selectedModel = ref('')
 const dpi = ref(200)
+const maxWorkers = ref(3)
 const availableModels = ref<string[]>([])
 const loadingModels = ref(false)
 const uploading = ref(false)
@@ -73,7 +74,7 @@ async function uploadAndStart() {
   if (!selectedFile.value) return
   uploading.value = true
   try {
-    const result = await ocrApi.uploadAndOcr(selectedFile.value, selectedModel.value, dpi.value)
+    const result = await ocrApi.uploadAndOcr(selectedFile.value, selectedModel.value, dpi.value, maxWorkers.value)
     selectedFile.value = null
     // Reset file input
     const input = document.getElementById('ocr-file-input') as HTMLInputElement
@@ -229,6 +230,11 @@ onUnmounted(() => {
           <div class="form-group">
             <label>DPI (higher = better quality, slower)</label>
             <input type="number" v-model.number="dpi" min="72" max="600" step="50" class="form-input" />
+          </div>
+
+          <div class="form-group">
+            <label>Parallel Pages (Concurrency)</label>
+            <input type="number" v-model.number="maxWorkers" min="1" max="10" step="1" class="form-input" />
           </div>
 
           <button
