@@ -162,9 +162,9 @@ class OcrService:
                     image_path=i_path,
                     prompt=prompt,
                     system_prompt=OCR_SYSTEM_PROMPT,
-                    max_size=2048,  # High res for OCR quality
+                    max_size=1536,  # Balanced for OCR quality vs context size
                     temperature=0.0,
-                    max_tokens=8192,
+                    max_tokens=1500, # A single page won't exceed 1500 tokens
                     max_retries=2,
                 )
                 return p_num, markdown, time.perf_counter() - start_t
