@@ -323,7 +323,7 @@ onUnmounted(() => {
           </div>
           <div class="detail-actions">
             <button
-              v-if="jobDetail.status === 'Paused' || jobDetail.status === 'Failed'"
+              v-if="['Paused', 'Failed', 'Queued'].includes(jobDetail.status)"
               class="btn btn-secondary"
               @click="resumeJob(jobDetail.name)"
             >

@@ -10,8 +10,12 @@ import os
 import time
 import logging
 import fitz  # PyMuPDF
+import PIL.Image
 from pathlib import Path
 from typing import Optional
+
+# Disable PIL's decompression bomb limit for large, high-dpi PDF pages
+PIL.Image.MAX_IMAGE_PIXELS = None
 
 import frappe
 from frappe.utils import now_datetime
@@ -124,6 +128,9 @@ class OcrService:
         images_dir = os.path.join(os.path.dirname(job.output_path), "images")
         os.makedirs(images_dir, exist_ok=True)
 
+        import concurrent.futures
+        max_workers = 3
+
         # Get pending pages (for resume)
         pending_pages = frappe.get_all(
             "OCR Page",
@@ -132,26 +139,28 @@ class OcrService:
             order_by="page_number asc",
         )
 
-        for page_rec in pending_pages:
-            page_num = page_rec["page_number"]
-            page_doc = frappe.get_doc("OCR Page", page_rec["name"])
-            page_doc.status = "Processing"
-            page_doc.save(ignore_permissions=True)
+        for i in range(0, len(pending_pages), max_workers):
+            batch = pending_pages[i : i + max_workers]
+
+            # 1) Render images and mark as Processing
+            for page_rec in batch:
+                page_doc = frappe.get_doc("OCR Page", page_rec["name"])
+                page_doc.status = "Processing"
+                try:
+                    img_path = self._render_page(pdf_doc, page_rec["page_number"], images_dir, job.dpi)
+                    page_doc.image_path = img_path
+                except Exception as e:
+                    page_doc.status = "Failed"
+                    page_doc.error = f"Render failed: {str(e)[:1000]}"
+                page_doc.save(ignore_permissions=True)
             frappe.db.commit()
 
-            try:
-                # 1) Render page to image
-                img_path = self._render_page(pdf_doc, page_num, images_dir, job.dpi)
-                page_doc.image_path = img_path
-
-                # 2) Call LLM
-                prompt = OCR_PAGE_PROMPT_TEMPLATE.format(
-                    page_number=page_num,
-                    total_pages=job.total_pages,
-                )
+            # 2) Call LLM in parallel (only network I/O, thread safe)
+            def call_llm(p_num, i_path):
+                prompt = OCR_PAGE_PROMPT_TEMPLATE.format(page_number=p_num, total_pages=job.total_pages)
                 start_t = time.perf_counter()
                 markdown = provider.describe_image(
-                    image_path=img_path,
+                    image_path=i_path,
                     prompt=prompt,
                     system_prompt=OCR_SYSTEM_PROMPT,
                     max_size=2048,  # High res for OCR quality
@@ -159,41 +168,41 @@ class OcrService:
                     max_tokens=8192,
                     max_retries=2,
                 )
-                elapsed = time.perf_counter() - start_t
+                return p_num, markdown, time.perf_counter() - start_t
 
-                # 3) Save result
-                page_doc.markdown_output = markdown
-                page_doc.processing_time = round(elapsed, 2)
-                page_doc.status = "Completed"
+            futures = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for page_rec in batch:
+                    p_doc = frappe.get_doc("OCR Page", page_rec["name"])
+                    if p_doc.status == "Processing" and p_doc.image_path:
+                        futures[executor.submit(call_llm, p_doc.page_number, p_doc.image_path)] = p_doc.name
+
+            # 3) Save results sequentially
+            for future in concurrent.futures.as_completed(futures):
+                page_name = futures[future]
+                page_doc = frappe.get_doc("OCR Page", page_name)
+                try:
+                    p_num, markdown, elapsed = future.result()
+                    page_doc.markdown_output = markdown
+                    page_doc.processing_time = round(elapsed, 2)
+                    page_doc.status = "Completed"
+                    logger.info("OCR page %d/%d done in %.1fs — job %s", p_num, job.total_pages, elapsed, job_name)
+                except Exception as e:
+                    logger.error("OCR page %s failed: %s", page_doc.page_number, e)
+                    page_doc.status = "Failed"
+                    page_doc.error = str(e)[:2000]
                 page_doc.save(ignore_permissions=True)
 
-                # 4) Update job counter
-                job.reload()
-                job.completed_pages = frappe.db.count(
-                    "OCR Page", {"ocr_job": job_name, "status": "Completed"}
-                )
-                job.save(ignore_permissions=True)
-                frappe.db.commit()
+            frappe.db.commit()
 
-                # 5) Write incremental .md
-                self._write_markdown(job_name, job.output_path)
+            # 4) Update job counters & markdown
+            job.reload()
+            job.completed_pages = frappe.db.count("OCR Page", {"ocr_job": job_name, "status": "Completed"})
+            job.failed_pages = frappe.db.count("OCR Page", {"ocr_job": job_name, "status": "Failed"})
+            job.save(ignore_permissions=True)
+            frappe.db.commit()
 
-                logger.info(
-                    "OCR page %d/%d done in %.1fs — job %s",
-                    page_num, job.total_pages, elapsed, job_name,
-                )
-
-            except Exception as e:
-                logger.error("OCR page %d failed: %s", page_num, e)
-                page_doc.status = "Failed"
-                page_doc.error = str(e)[:2000]
-                page_doc.save(ignore_permissions=True)
-                job.reload()
-                job.failed_pages = frappe.db.count(
-                    "OCR Page", {"ocr_job": job_name, "status": "Failed"}
-                )
-                job.save(ignore_permissions=True)
-                frappe.db.commit()
+            self._write_markdown(job_name, job.output_path)
 
         pdf_doc.close()
 
