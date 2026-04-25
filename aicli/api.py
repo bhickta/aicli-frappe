@@ -29,14 +29,24 @@ def update_settings():
 
 @frappe.whitelist()
 def list_models():
-    from aicli.providers.lm_studio import LMStudioProvider
-    from aicli.providers.ollama import OllamaProvider
+    import requests
     doc = frappe.get_single("AICLI Settings")
     provider_type = doc.provider_type
-    if provider_type == "lmstudio":
-        return {"models": LMStudioProvider.list_models()}
-    elif provider_type == "ollama":
-        return {"models": OllamaProvider.list_models()}
+    try:
+        if provider_type == "lmstudio":
+            base_url = (doc.lm_studio_base_url or "http://localhost:1234/v1").rstrip("/")
+            res = requests.get(f"{base_url}/models", timeout=5)
+            if res.ok:
+                data = res.json()
+                return {"models": [m["id"] for m in data.get("data", []) if m.get("id")]}
+        elif provider_type == "ollama":
+            base_url = (doc.ollama_base_url or "http://localhost:11434").rstrip("/")
+            res = requests.get(f"{base_url}/api/tags", timeout=5)
+            if res.ok:
+                data = res.json()
+                return {"models": [m["name"] for m in data.get("models", []) if m.get("name")]}
+    except Exception as e:
+        frappe.log_error(f"Failed to fetch models: {e}")
     return {"models": []}
 
 @frappe.whitelist()

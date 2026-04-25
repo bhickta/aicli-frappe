@@ -21,18 +21,28 @@ class LMStudioProvider(LangChainProvider):
 
     @staticmethod
     def list_models() -> list[str]:
-        """Returns a list of available model identifiers from LM Studio."""
-        if not shutil.which("lms"):
-            return []
+        """Returns a list of available model identifiers from LM Studio via API."""
+        import requests
         try:
-            res = subprocess.run(["lms", "ls"], capture_output=True, text=True)
-            models = []
-            for line in res.stdout.splitlines():
-                if "/" in line:
-                    models.append(line.split()[0].strip())
-            return models
-        except Exception:
+            base_url = config.lm_studio_base_url.rstrip("/")
+            res = requests.get(f"{base_url}/models", timeout=5)
+            if res.ok:
+                data = res.json()
+                return [m["id"] for m in data.get("data", []) if m.get("id")]
             return []
+        except Exception:
+            # Fallback to CLI if available
+            if not shutil.which("lms"):
+                return []
+            try:
+                res = subprocess.run(["lms", "ls"], capture_output=True, text=True)
+                models = []
+                for line in res.stdout.splitlines():
+                    if "/" in line:
+                        models.append(line.split()[0].strip())
+                return models
+            except Exception:
+                return []
 
     def _ensure_model_loaded(self, model_name: str):
         """Uses 'lms' CLI to verify if a model is loaded; if not, attempts to load it."""
