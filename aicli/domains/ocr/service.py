@@ -109,7 +109,7 @@ class OcrService:
         logger.info("OCR job %s created — %d pages from %s", job.name, total_pages, pdf_path)
         return job.name
 
-    def run_job(self, job_name: str) -> None:
+    def run_job(self, job_name: str, max_workers: int = 3) -> None:
         """
         Process all pending pages for the given job.
         Saves after every page so progress is visible and the job is resumable.
@@ -129,7 +129,6 @@ class OcrService:
         os.makedirs(images_dir, exist_ok=True)
 
         import concurrent.futures
-        max_workers = 3
 
         # Get pending pages (for resume)
         pending_pages = frappe.get_all(

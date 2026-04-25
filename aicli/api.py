@@ -132,10 +132,10 @@ def upload_pdfs():
 # OCR Endpoints
 # ──────────────────────────────────────────────────────────────────
 
-def _run_ocr_job(ocr_job_name):
+def _run_ocr_job(ocr_job_name, max_workers=3):
     """Standalone function for frappe.enqueue — runs an OCR job."""
     from aicli.domains.ocr.service import OcrService
-    OcrService().run_job(ocr_job_name)
+    OcrService().run_job(ocr_job_name, max_workers=max_workers)
 
 @frappe.whitelist()
 def start_ocr(pdf_path, model_name=None, dpi=200):
@@ -150,6 +150,7 @@ def start_ocr(pdf_path, model_name=None, dpi=200):
     frappe.enqueue(
         "aicli.api._run_ocr_job",
         ocr_job_name=job_name,
+        max_workers=int(frappe.request.form.get("max_workers", 3) if frappe.request else 3),
         queue="long",
         timeout=3600,
         is_async=True,
@@ -182,6 +183,7 @@ def resume_ocr(job_name):
     frappe.enqueue(
         "aicli.api._run_ocr_job",
         ocr_job_name=job_name,
+        max_workers=int(frappe.request.form.get("max_workers", 3) if frappe.request else 3),
         queue="long",
         timeout=3600,
         is_async=True,
@@ -219,10 +221,13 @@ def upload_pdf_for_ocr():
     svc = OcrService()
     job_name = svc.create_job(file_path, model_name, dpi)
     
+    max_workers = int(frappe.request.form.get("max_workers", 3))
+    
     # Enqueue the job
     frappe.enqueue(
         "aicli.api._run_ocr_job",
         ocr_job_name=job_name,
+        max_workers=max_workers,
         queue="long",
         timeout=3600,
         is_async=True,
