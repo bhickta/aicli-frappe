@@ -11,6 +11,13 @@
           📄
         </button>
         <button 
+          :class="['nav-btn', { active: workspace === 'ocr' }]" 
+          @click="workspace = 'ocr'"
+          title="PDF OCR"
+        >
+          🔍
+        </button>
+        <button 
           :class="['nav-btn', { active: workspace === 'video' }]" 
           @click="workspace = 'video'"
           title="Video Studio"
@@ -47,6 +54,7 @@
     
     <div class="workspace-container">
       <AnalyzeStudio v-show="workspace === 'analyze'" />
+      <OcrStudio v-show="workspace === 'ocr'" />
       <VideoStudio v-show="workspace === 'video'" />
       <NewsStudio v-show="workspace === 'news'" />
       <ImageStudio v-show="workspace === 'image'" />
@@ -62,6 +70,7 @@ import AnalyzeStudio from './components/AnalyzeStudio.vue'
 import VideoStudio from './components/VideoStudio.vue'
 import NewsStudio from './components/NewsStudio.vue'
 import ImageStudio from './components/ImageStudio.vue'
+import OcrStudio from './components/OcrStudio.vue'
 import SettingsStudio from './components/SettingsStudio.vue'
 
 const workspace = ref('analyze')

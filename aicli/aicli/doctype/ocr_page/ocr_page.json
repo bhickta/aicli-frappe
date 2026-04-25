@@ -1,0 +1,73 @@
+{
+    "actions": [],
+    "creation": "2026-04-25 14:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "ocr_job",
+        "page_number",
+        "status",
+        "markdown_output",
+        "image_path",
+        "processing_time",
+        "error"
+    ],
+    "fields": [
+        {
+            "fieldname": "ocr_job",
+            "fieldtype": "Link",
+            "label": "OCR Job",
+            "options": "OCR Job",
+            "in_list_view": 1,
+            "reqd": 1
+        },
+        {
+            "fieldname": "page_number",
+            "fieldtype": "Int",
+            "label": "Page Number",
+            "in_list_view": 1,
+            "reqd": 1
+        },
+        {
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "label": "Status",
+            "options": "Pending\nProcessing\nCompleted\nFailed",
+            "default": "Pending",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "markdown_output",
+            "fieldtype": "Long Text",
+            "label": "Markdown Output"
+        },
+        {
+            "fieldname": "image_path",
+            "fieldtype": "Data",
+            "label": "Image Path"
+        },
+        {
+            "fieldname": "processing_time",
+            "fieldtype": "Float",
+            "label": "Processing Time (s)"
+        },
+        {
+            "fieldname": "error",
+            "fieldtype": "Long Text",
+            "label": "Error"
+        }
+    ],
+    "module": "AICLI",
+    "name": "OCR Page",
+    "naming_rule": "Expression (old style)",
+    "autoname": "hash",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "read": 1,
+            "role": "System Manager",
+            "write": 1
+        }
+    ]
+}

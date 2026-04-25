@@ -117,3 +117,105 @@ def upload_pdfs():
         f.save(file_path)
         
     return {"ok": True}
+
+# ──────────────────────────────────────────────────────────────────
+# OCR Endpoints
+# ──────────────────────────────────────────────────────────────────
+
+def _run_ocr_job(job_name):
+    """Standalone function for frappe.enqueue — runs an OCR job."""
+    from aicli.domains.ocr.service import OcrService
+    OcrService().run_job(job_name)
+
+@frappe.whitelist()
+def start_ocr(pdf_path, model_name=None, dpi=200):
+    """Create and immediately start an OCR job."""
+    from aicli.domains.ocr.service import OcrService
+    svc = OcrService()
+    if not model_name:
+        doc = frappe.get_single("AICLI Settings")
+        model_name = doc.model_name or "gemma-4-27b-it"
+    job_name = svc.create_job(pdf_path, model_name, int(dpi))
+    # Run synchronously (for now — can be moved to background job)
+    frappe.enqueue(
+        "aicli.api._run_ocr_job",
+        job_name=job_name,
+        queue="long",
+        timeout=3600,
+        is_async=True,
+    )
+    return {"job_name": job_name, "status": "Queued"}
+
+@frappe.whitelist()
+def ocr_status(job_name):
+    """Get status of an OCR job."""
+    from aicli.domains.ocr.service import OcrService
+    return OcrService().get_status(job_name)
+
+@frappe.whitelist()
+def ocr_output(job_name):
+    """Get the assembled markdown output."""
+    from aicli.domains.ocr.service import OcrService
+    return {"markdown": OcrService().get_output(job_name)}
+
+@frappe.whitelist()
+def ocr_jobs():
+    """List all OCR jobs."""
+    from aicli.domains.ocr.service import OcrService
+    return OcrService().list_jobs()
+
+@frappe.whitelist()
+def resume_ocr(job_name):
+    """Resume a paused or failed OCR job."""
+    from aicli.domains.ocr.service import OcrService
+    svc = OcrService()
+    frappe.enqueue(
+        "aicli.api._run_ocr_job",
+        job_name=job_name,
+        queue="long",
+        timeout=3600,
+        is_async=True,
+    )
+    return {"job_name": job_name, "status": "Resuming"}
+
+@frappe.whitelist()
+def delete_ocr_job(job_name):
+    """Delete an OCR job and all its pages."""
+    from aicli.domains.ocr.service import OcrService
+    OcrService().delete_job(job_name)
+    return {"ok": True}
+
+@frappe.whitelist()
+def upload_pdf_for_ocr():
+    """Upload a PDF and immediately start OCR on it."""
+    from aicli.domains.ocr.service import OcrService
+    if "file" not in frappe.request.files:
+        frappe.throw("No file uploaded")
+    
+    f = frappe.request.files["file"]
+    ocr_dir = frappe.get_site_path("public", "files", "aicli_ocr", "uploads")
+    os.makedirs(ocr_dir, exist_ok=True)
+    
+    file_path = os.path.join(ocr_dir, f.filename)
+    f.save(file_path)
+    
+    # Get model from form data or settings
+    model_name = frappe.request.form.get("model_name")
+    dpi = int(frappe.request.form.get("dpi", 200))
+    if not model_name:
+        doc = frappe.get_single("AICLI Settings")
+        model_name = doc.model_name or "gemma-4-27b-it"
+    
+    svc = OcrService()
+    job_name = svc.create_job(file_path, model_name, dpi)
+    
+    # Enqueue the job
+    frappe.enqueue(
+        "aicli.api._run_ocr_job",
+        job_name=job_name,
+        queue="long",
+        timeout=3600,
+        is_async=True,
+    )
+    
+    return {"job_name": job_name, "pdf_path": file_path, "status": "Queued"}
