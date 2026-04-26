@@ -181,16 +181,23 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
         # Unzip it - Frappe will attach all extracted files to the OCR Job
         file_doc.unzip()
         
-        extracted_files = frappe.get_all("File", filters={"attached_to_doctype": "OCR Job", "attached_to_name": job_name, "is_folder": 0, "name": ("!=", file_doc.name)})
-        if not extracted_files:
-            frappe.throw("No files found after unzipping the archive.")
+        # 3. Retrieve the newly created image File docs using native Frappe Core API
+        from frappe.core.api.file import get_attached_images
+        attached = get_attached_images("OCR Job", job_name)
+        image_urls = attached.get(job_name, [])
+        
+        # Filter out the original ZIP if it's in the list
+        image_urls = [url for url in image_urls if url != file_doc.file_url]
+        
+        if not image_urls:
+            frappe.throw("No images found after unzipping the archive.")
             
-        # Create the pages in the DB
-        file_docs = [frappe.get_doc("File", f.name) for f in extracted_files]
+        # Create the pages in the DB using the resolved URLs
         pages_data = []
         from aicli.domains.ocr.file_manager import FileManager
-        for i, fdoc in enumerate(file_docs):
-            abs_path = FileManager.get_full_path_from_url(fdoc.file_url)
+        for i, url in enumerate(image_urls):
+            # We still need the absolute path for the LLM worker to read the file
+            abs_path = FileManager.get_full_path_from_url(url)
             pages_data.append({"page_number": i + 1, "image_path": abs_path})
             
         svc._repo.create_pages(job_name, pages_data)

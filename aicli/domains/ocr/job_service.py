@@ -220,8 +220,10 @@ class OcrJobService:
                 if not page_doc.image_path:
                     self._repo.save_page_error(page_rec["name"], "Image not rendered")
                     continue
+                # Always resolve to absolute filesystem path — image_path may be a Frappe URL like /files/...
+                abs_image_path = self._file_manager.get_full_path_from_url(page_doc.image_path)
                 future = executor.submit(
-                    caller.process_page, page_doc.image_path, page_rec["page_number"]
+                    caller.process_page, abs_image_path, page_rec["page_number"]
                 )
                 futures[future] = page_rec["name"]
 

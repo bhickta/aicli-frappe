@@ -95,23 +95,14 @@ class FileManager:
 
     @staticmethod
     def get_full_path_from_url(file_url: str) -> str:
-        """Resolve a Frappe File URL to a full local filesystem path."""
+        """Resolve a Frappe File URL to a full local filesystem path.
         
-        # If it's an actual OS absolute path (e.g., /workspace/...)
-        if os.path.isabs(file_url) and not file_url.startswith("/files/") and not file_url.startswith("/private/files/"):
-            return file_url
-            
-        # Get relative path from URL (e.g., /files/abc.zip -> public/files/abc.zip)
-        if file_url.startswith("/files/"):
-            rel_path = os.path.join("public", file_url.lstrip("/"))
-        elif file_url.startswith("/private/files/"):
-            rel_path = file_url.lstrip("/")
-        else:
-            # Fallback for other URLs
-            rel_path = file_url.lstrip("/")
-
-        # Use robust internal path resolver
-        return FileManager._get_path(rel_path)
+        Uses Frappe's native File.get_full_path() for reliable resolution
+        across web server and background worker contexts.
+        """
+        # Use Frappe's own File document to resolve the path
+        file_doc = frappe.get_doc("File", {"file_url": file_url})
+        return file_doc.get_full_path()
 
     @staticmethod
     def extract_zip(zip_path: str, images_dir: str) -> list[str]:
