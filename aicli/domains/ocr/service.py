@@ -131,6 +131,33 @@ class OcrService:
             order_by="page_number asc",
         )
 
+        if not pending_pages:
+            logger.info("No pending pages for job %s", job_name)
+            return
+
+        # 1) Massive Bulk Render (Parallel)
+        logger.info("Bulk rendering %d pages for job %s...", len(pending_pages), job_name)
+        def bulk_render(p_num):
+            try:
+                t_pdf = fitz.open(job.pdf_path)
+                path = self._render_page(t_pdf, p_num, images_dir, job.dpi)
+                t_pdf.close()
+                return p_num, path
+            except Exception as e:
+                logger.error("Bulk render failed for page %d: %s", p_num, e)
+                return p_num, None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
+            render_results = dict(executor.map(bulk_render, [p["page_number"] for p in pending_pages]))
+
+        # Update DB with image paths
+        for page_rec in pending_pages:
+            p_num = page_rec["page_number"]
+            if render_results.get(p_num):
+                frappe.db.set_value("OCR Page", page_rec["name"], "image_path", render_results[p_num], update_modified=False)
+        frappe.db.commit()
+
+        # 2) Process LLM calls in batches
         for i in range(0, len(pending_pages), max_workers):
             # ── Check for user-initiated stop ──
             job.reload()
@@ -140,31 +167,24 @@ class OcrService:
 
             batch = pending_pages[i : i + max_workers]
 
-            # 1) Render images and mark as Processing
+            # Mark batch as Processing
             for page_rec in batch:
-                page_doc = frappe.get_doc("OCR Page", page_rec["name"])
-                page_doc.status = "Processing"
-                try:
-                    img_path = self._render_page(pdf_doc, page_rec["page_number"], images_dir, job.dpi)
-                    page_doc.image_path = img_path
-                except Exception as e:
-                    page_doc.status = "Failed"
-                    page_doc.error = f"Render failed: {str(e)[:1000]}"
-                page_doc.save(ignore_permissions=True)
+                frappe.db.set_value("OCR Page", page_rec["name"], "status", "Processing", update_modified=False)
             frappe.db.commit()
 
-            # 2) Call LLM in parallel
-            def call_llm(p_num, i_path):
+            def call_llm(p_name, p_num):
+                page_doc = frappe.get_doc("OCR Page", p_name)
+                if not page_doc.image_path:
+                    raise Exception("Image not rendered")
+
                 prompt = OCR_PAGE_PROMPT_TEMPLATE.format(page_number=p_num, total_pages=job.total_pages)
                 start_t = time.perf_counter()
-                # Small jitter to stagger concurrent requests
-                time.sleep(random.uniform(0.05, 0.5))
 
                 max_attempts = 5
                 for attempt in range(max_attempts):
                     try:
                         markdown = provider.describe_image(
-                            image_path=i_path,
+                            image_path=page_doc.image_path,
                             prompt=prompt,
                             system_prompt=OCR_SYSTEM_PROMPT,
                             max_size=1536,
@@ -178,38 +198,23 @@ class OcrService:
                         if hasattr(e, "response") and hasattr(e.response, "text"):
                             error_str += f" | {e.response.text}"
 
-                        is_crash = (
-                            "model has crashed" in error_str.lower()
-                            or "channel error" in error_str.lower()
-                            or "failed to process image" in error_str.lower()
-                        )
-
+                        if "model has crashed" in error_str.lower() or "channel error" in error_str.lower():
+                            if attempt < max_attempts - 1:
+                                self._unload_model_via_api(api_root, job.model_name)
+                                time.sleep(2)
+                                self._load_model_via_api(api_root, job.model_name)
+                                time.sleep(5)
+                                continue
+                        
                         if attempt < max_attempts - 1:
-                            if is_crash:
-                                logger.error("Model crashed on page %d! Reviving %s...", p_num, job.model_name)
-                                try:
-                                    self._unload_model_via_api(api_root, job.model_name)
-                                    time.sleep(2)
-                                    self._load_model_via_api(api_root, job.model_name)
-                                except Exception as revive_err:
-                                    logger.error("Revive failed: %s", revive_err)
-                                sleep_time = 8.0
-                            else:
-                                sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
-
-                            logger.warning("OCR page %d failed (%s), retrying in %.1fs...", p_num, error_str, sleep_time)
-                            time.sleep(sleep_time)
+                            time.sleep((2 ** attempt) + random.uniform(0.5, 1.0))
                         else:
-                            logger.error("OCR page %d failed after %d attempts: %s", p_num, max_attempts, error_str)
-                            raise Exception(error_str) from e
+                            raise Exception(error_str)
 
-            import concurrent.futures
             futures = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 for page_rec in batch:
-                    p_doc = frappe.get_doc("OCR Page", page_rec["name"])
-                    if p_doc.status == "Processing" and p_doc.image_path:
-                        futures[executor.submit(call_llm, p_doc.page_number, p_doc.image_path)] = p_doc.name
+                    futures[executor.submit(call_llm, page_rec["name"], page_rec["page_number"])] = page_rec["name"]
 
             # 3) Save results
             for future in concurrent.futures.as_completed(futures):
