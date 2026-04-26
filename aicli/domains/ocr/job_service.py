@@ -134,9 +134,10 @@ class OcrJobService:
 
     def _extract_phase(self, job, images_dir: str) -> None:
         """Phase 1: Extract all images from the uploaded ZIP file."""
-        logger.info("Extracting %s to %s", job.zip_path, images_dir)
+        zip_path = self._file_manager.validate_zip(job.zip_path)
+        logger.info("Extracting %s to %s", zip_path, images_dir)
         
-        extracted_images = self._file_manager.extract_zip(job.zip_path, images_dir)
+        extracted_images = self._file_manager.extract_zip(zip_path, images_dir)
         
         total_pages = len(extracted_images)
         if total_pages == 0:
