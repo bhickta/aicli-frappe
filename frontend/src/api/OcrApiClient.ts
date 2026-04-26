@@ -9,10 +9,13 @@ import type {
 
 export class OcrApiClient {
   async startZipOcr(
-    fileUrl: string, modelName?: string, maxWorkers = 3,
+    fileUrl: string, modelName?: string, maxWorkers = 3, shutdownAfterCompletion = false,
   ): Promise<StartOcrResponse> {
     return frappe.call('start_zip_ocr', {
-      file_url: fileUrl, model_name: modelName, max_workers: maxWorkers,
+      file_url: fileUrl, 
+      model_name: modelName, 
+      max_workers: maxWorkers,
+      shutdown_after_completion: shutdownAfterCompletion,
     })
   }
 

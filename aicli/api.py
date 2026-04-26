@@ -145,7 +145,7 @@ def upload_pdfs():
 # ──────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None):
+def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None, shutdown_after_completion: bool = False):
     """Start OCR job from a Frappe File URL."""
     from aicli.domains.ocr.job_service import OcrJobService
     from aicli.domains.ocr.constants import DEFAULT_MODEL, DEFAULT_MAX_WORKERS, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
@@ -170,7 +170,7 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
             frappe.throw("Job exists but no extracted images found. Please re-upload.")
     else:
         # Create a new job using the service (handles result file creation)
-        job_name = svc.create_job("Native Unzip", "ocr_results", model_name, 0)
+        job_name = svc.create_job("Native Unzip", "ocr_results", model_name, 0, shutdown_after_completion=shutdown_after_completion)
         
         # Attach the ZIP to the job so unzip() inherits this attachment!
         file_doc.attached_to_doctype = "OCR Job"

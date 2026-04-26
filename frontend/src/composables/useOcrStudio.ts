@@ -26,6 +26,7 @@ export function useOcrStudio() {
   // Upload form
   const selectedModel = ref('')
   const maxWorkers = ref(24)
+  const shutdownAfterCompletion = ref(false)
   const availableModels = ref<string[]>([])
   const loadingModels = ref(false)
   const uploading = ref(false)
@@ -98,7 +99,7 @@ export function useOcrStudio() {
             uploading.value = true
             try {
               const result = await ocrApi.startZipOcr(
-                fileDoc.file_url, selectedModel.value, maxWorkers.value
+                fileDoc.file_url, selectedModel.value, maxWorkers.value, shutdownAfterCompletion.value
               )
               await loadJobs()
               if (result?.job_name) {
@@ -231,7 +232,7 @@ export function useOcrStudio() {
     // State
     jobs, selectedJobName, jobDetail, lastUpdated,
     markdownOutput, showMarkdown,
-    selectedModel, maxWorkers,
+    selectedModel, maxWorkers, shutdownAfterCompletion,
     availableModels, loadingModels, uploading,
     // Computed
     activeJobs, completedJobs, failedJobs,
