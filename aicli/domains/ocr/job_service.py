@@ -127,20 +127,24 @@ class OcrJobService:
                 job.output_path, job.status == "Completed"
             )
             
-            # Clean up native Frappe File records (the zip and its extracted contents)
-            if job.zip_path and job.zip_path != "Native Unzip":
-                try:
-                    file_doc = frappe.get_doc("File", job.zip_path)
-                    import os
-                    folder_name = os.path.splitext(file_doc.file_name)[0]
-                    # Delete all extracted images in the same folder
-                    extracted_files = frappe.get_all("File", filters={"folder": folder_name, "is_folder": 0})
-                    for ef in extracted_files:
-                        frappe.delete_doc("File", ef.name, ignore_permissions=True, force=True)
-                    # Delete the original zip file itself
-                    frappe.delete_doc("File", file_doc.name, ignore_permissions=True, force=True)
-                except Exception as ex:
-                    logger.error("Failed to clean up Frappe File records: %s", ex)
+            # Clean up native Frappe File records
+            try:
+                # Delete all files attached to this OCR Job
+                attached_files = frappe.get_all("File", filters={"attached_to_doctype": "OCR Job", "attached_to_name": job_name})
+                for ef in attached_files:
+                    frappe.delete_doc("File", ef.name, ignore_permissions=True, force=True)
+                    
+                # Also delete the ZIP file if it's stored in zip_path (it might not be attached if the user didn't attach it)
+                if job.zip_path and job.zip_path != "Native Unzip":
+                    try:
+                        # Sometimes the ZIP itself is attached to the job, so it might be deleted above.
+                        # If not, let's make sure we delete it here
+                        if frappe.db.exists("File", job.zip_path):
+                            frappe.delete_doc("File", job.zip_path, ignore_permissions=True, force=True)
+                    except Exception:
+                        pass
+            except Exception as ex:
+                logger.error("Failed to clean up Frappe File records: %s", ex)
                     
         except Exception as e:
             logger.error("File cleanup error: %s", e)

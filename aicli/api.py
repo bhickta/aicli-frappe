@@ -157,34 +157,48 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
     if max_workers is None:
         max_workers = DEFAULT_MAX_WORKERS
 
-    # 1. Fetch the File DocType
     file_doc = frappe.get_doc("File", {"file_url": file_url})
     
-    import os
-    folder_name = os.path.splitext(file_doc.file_name)[0]
-    
-    # Check if we already have files in this folder
-    extracted_files = frappe.get_all("File", filters={"folder": folder_name, "is_folder": 0}, fields=["name", "file_url", "folder"])
-    
-    # 2. Unzip it only if not already unzipped
-    if not extracted_files:
-        file_doc.unzip()
-        # Fetch newly created file docs
-        extracted_files = frappe.get_all("File", filters={"folder": folder_name, "is_folder": 0}, fields=["name", "file_url", "folder"])
-        if not extracted_files:
-            # Fallback if folder logic differs: fetch files attached to same parent
-            extracted_files = frappe.get_all("File", filters={"attached_to_name": file_doc.attached_to_name, "is_folder": 0, "name": ("!=", file_doc.name)}, fields=["name", "file_url", "folder"])
-            
-    if not extracted_files:
-        frappe.throw("No files found after unzipping the archive.")
-
-    file_docs = [frappe.get_doc("File", f.name) for f in extracted_files]
-
-    # Create job using the new repository method
     svc = OcrJobService()
-    job_name = svc.create_job_from_files(file_docs, model_name)
     
-    # Save the file_doc name to job.zip_path so we can clean it up later
+    # If the file is already attached to an OCR Job, it means we already extracted it.
+    if file_doc.attached_to_doctype == "OCR Job" and file_doc.attached_to_name:
+        job_name = file_doc.attached_to_name
+        # It's already extracted, get the files
+        extracted_files = frappe.get_all("File", filters={"attached_to_doctype": "OCR Job", "attached_to_name": job_name, "is_folder": 0, "name": ("!=", file_doc.name)})
+        if not extracted_files:
+            frappe.throw("Job exists but no extracted images found. Please re-upload.")
+    else:
+        # Create a new job first
+        job_name = svc._repo.create_job("Native Unzip", "ocr_results", model_name, 0)
+        
+        # Attach the ZIP to the job so unzip() inherits this attachment!
+        file_doc.attached_to_doctype = "OCR Job"
+        file_doc.attached_to_name = job_name
+        file_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        # Unzip it - Frappe will attach all extracted files to the OCR Job
+        file_doc.unzip()
+        
+        extracted_files = frappe.get_all("File", filters={"attached_to_doctype": "OCR Job", "attached_to_name": job_name, "is_folder": 0, "name": ("!=", file_doc.name)})
+        if not extracted_files:
+            frappe.throw("No files found after unzipping the archive.")
+            
+        # Create the pages in the DB
+        file_docs = [frappe.get_doc("File", f.name) for f in extracted_files]
+        pages_data = []
+        from aicli.domains.ocr.file_manager import FileManager
+        for i, fdoc in enumerate(file_docs):
+            abs_path = FileManager.get_full_path_from_url(fdoc.file_url)
+            pages_data.append({"page_number": i + 1, "image_path": abs_path})
+            
+        svc._repo.create_pages(job_name, pages_data)
+        
+        # Update job total pages
+        frappe.db.set_value("OCR Job", job_name, "total_pages", len(pages_data))
+        
+    # Save zip path
     frappe.db.set_value("OCR Job", job_name, "zip_path", file_doc.name)
 
     frappe.enqueue(
