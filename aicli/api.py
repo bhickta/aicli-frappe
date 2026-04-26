@@ -183,7 +183,8 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
         
         # 3. Retrieve the newly created image File docs using native Frappe Core API
         from frappe.core.api.file import get_attached_images
-        attached = get_attached_images("OCR Job", job_name)
+        # get_attached_images expects a list or a JSON string of a list
+        attached = get_attached_images("OCR Job", [job_name])
         image_urls = attached.get(job_name, [])
         
         # Filter out the original ZIP if it's in the list
