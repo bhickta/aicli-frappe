@@ -1,11 +1,11 @@
 """Step 1: Convert PDF pages to PNG images.
 
-Uses pdf2image (poppler) to render each page at configurable DPI.
+Uses PyMuPDF (fitz) to render each page at configurable DPI, avoiding large RAM/swap usage.
 Already-converted pages are skipped for resumability.
 """
 from pathlib import Path
 
-from pdf2image import convert_from_path
+import fitz
 
 from aicli.domains.analyze.database import AnalyzeDB
 
@@ -34,16 +34,20 @@ class PDFConverterService:
         pdf_image_dir = output_dir / pdf_path.stem
         pdf_image_dir.mkdir(parents=True, exist_ok=True)
 
-        # Convert all pages at once (pdf2image handles memory internally)
-        images = convert_from_path(str(pdf_path), dpi=dpi)
+        doc = fitz.open(str(pdf_path))
+        # PyMuPDF's default DPI is 72. zoom = dpi / 72.
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
 
         count = 0
-        for i, img in enumerate(images, start=1):
+        for i, page in enumerate(doc, start=1):
             image_path = pdf_image_dir / f"page_{i:04d}.png"
-            img.save(str(image_path), "PNG")
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            pix.save(str(image_path))
             db.insert_page(pdf_name, i, str(image_path))
             count += 1
 
+        doc.close()
         db.log_processing(pdf_name, "pdf_to_images", "done")
         return count
 
