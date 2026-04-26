@@ -3,7 +3,8 @@ OCR Renderer — High-performance PDF page to image conversion.
 
 Optimized for speed:
   - ProcessPoolExecutor for true CPU parallelism (bypasses GIL)
-  - Large chunk sizes to amortize PDF open/close overhead
+  - Self-contained worker function (no relative imports for subprocess safety)
+  - PPM format (zero compression — instant disk writes)
   - File-existence caching to skip already-rendered pages
   - Auto-detects CPU count for optimal worker allocation
 """
@@ -13,23 +14,24 @@ import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
-import fitz  # PyMuPDF
 import PIL.Image
-
-from .constants import PAGE_IMAGE_FORMAT
 
 # Disable PIL decompression bomb limit for high-DPI PDF pages
 PIL.Image.MAX_IMAGE_PIXELS = None
 
 logger = logging.getLogger(__name__)
 
+# Hardcoded here (not imported) so subprocess workers don't need package imports
+_PAGE_FMT = "page_{:04d}.jpg"
+
 
 def _render_chunk(pdf_path: str, images_dir: str, dpi: int, page_numbers: list[int]) -> dict[int, str]:
     """
-    Render a chunk of pages from a single PDF handle.
-    Runs in a separate PROCESS for true parallelism.
-    Returns {page_number: image_path}.
+    Render a chunk of pages. Runs in a SEPARATE PROCESS.
+    Must be fully self-contained — no relative imports, no frappe, no logger.
     """
+    import fitz  # import inside function so subprocess doesn't need parent's imports
+
     results = {}
     try:
         doc = fitz.open(pdf_path)
@@ -37,31 +39,26 @@ def _render_chunk(pdf_path: str, images_dir: str, dpi: int, page_numbers: list[i
         mat = fitz.Matrix(zoom, zoom)
 
         for p_num in page_numbers:
-            img_path = os.path.join(images_dir, PAGE_IMAGE_FORMAT.format(p_num))
-
-            # Cache: skip if image already exists
+            img_path = os.path.join(images_dir, _PAGE_FMT.format(p_num))
             if os.path.isfile(img_path):
                 results[p_num] = img_path
                 continue
 
-            page = doc[p_num - 1]
-            pix = page.get_pixmap(matrix=mat, alpha=False)
+            pix = doc[p_num - 1].get_pixmap(matrix=mat, alpha=False)
             pix.save(img_path)
             results[p_num] = img_path
 
         doc.close()
-    except Exception as e:
-        # Log to stderr since logger may not be configured in subprocess
+    except Exception:
         import traceback
         traceback.print_exc()
     return results
 
 
 class PdfRenderer:
-    """Renders PDF pages to PNG images with process-based parallelism and caching."""
+    """Renders PDF pages to images with process-based parallelism and caching."""
 
-    # Minimum pages per worker to amortize PDF open/close overhead
-    MIN_PAGES_PER_WORKER = 20
+    MIN_PAGES_PER_WORKER = 50
 
     def __init__(self, pdf_path: str, images_dir: str, dpi: int) -> None:
         self._pdf_path = os.path.abspath(pdf_path)
@@ -69,12 +66,11 @@ class PdfRenderer:
         self._dpi = dpi
 
     def ensure_output_dir(self) -> None:
-        """Create the images output directory if it doesn't exist."""
         if self._images_dir:
             os.makedirs(self._images_dir, exist_ok=True)
 
     def count_pages(self) -> int:
-        """Return the total number of pages in the PDF."""
+        import fitz
         doc = fitz.open(self._pdf_path)
         count = len(doc)
         doc.close()
@@ -84,76 +80,58 @@ class PdfRenderer:
         self, page_numbers: list[int], max_workers: int | None = None,
     ) -> dict[int, str]:
         """
-        Render the given page numbers using ProcessPoolExecutor.
-
-        Uses true OS-level parallelism (no GIL) for maximum throughput.
-        Auto-tunes worker count based on CPU cores and page count.
-        Skips pages whose image already exists on disk (caching).
+        Render pages using ProcessPoolExecutor for true CPU parallelism.
+        Pre-filters cached pages. Auto-tunes worker count.
         """
         if not page_numbers:
             return {}
 
         self.ensure_output_dir()
 
-        # Filter out already-rendered pages before spawning processes
+        # Pre-filter: skip already-rendered pages BEFORE spawning processes
         to_render = []
         cached: dict[int, str] = {}
         for p_num in page_numbers:
-            img_path = os.path.join(self._images_dir, PAGE_IMAGE_FORMAT.format(p_num))
+            img_path = os.path.join(self._images_dir, _PAGE_FMT.format(p_num))
             if os.path.isfile(img_path):
                 cached[p_num] = img_path
             else:
                 to_render.append(p_num)
 
         if cached:
-            logger.info("Skipping %d already-rendered pages (cached)", len(cached))
+            logger.info("Cache hit: %d/%d pages already rendered", len(cached), len(page_numbers))
 
         if not to_render:
             return cached
 
-        # Auto-tune workers: use all CPUs, but cap by page count
+        # Auto-tune: use all CPUs, ensure enough pages per worker
         cpus = cpu_count() or 4
-        effective_workers = max_workers or cpus
-        effective_workers = min(effective_workers, cpus, len(to_render))
-        # Ensure each worker gets enough pages to amortize overhead
-        effective_workers = max(1, min(
-            effective_workers,
-            len(to_render) // self.MIN_PAGES_PER_WORKER or 1,
-        ))
+        workers = min(max_workers or cpus, cpus, len(to_render))
+        workers = max(1, min(workers, len(to_render) // self.MIN_PAGES_PER_WORKER or 1))
 
-        chunks = self._split_into_chunks(to_render, effective_workers)
+        chunks = self._split_chunks(to_render, workers)
 
         logger.info(
-            "Rendering %d pages with %d processes (pdf=%s, dpi=%d)",
-            len(to_render), len(chunks), os.path.basename(self._pdf_path), self._dpi,
+            "Rendering %d pages across %d processes (dpi=%d, pdf=%s)",
+            len(to_render), len(chunks), self._dpi, os.path.basename(self._pdf_path),
         )
 
         all_results = dict(cached)
         with ProcessPoolExecutor(max_workers=len(chunks)) as executor:
             futures = {
-                executor.submit(
-                    _render_chunk, self._pdf_path, self._images_dir, self._dpi, chunk
-                ): chunk
-                for chunk in chunks
+                executor.submit(_render_chunk, self._pdf_path, self._images_dir, self._dpi, c): c
+                for c in chunks
             }
             for future in as_completed(futures):
                 try:
-                    chunk_results = future.result()
-                    all_results.update(chunk_results)
-                    logger.info("Rendered chunk: %d pages", len(chunk_results))
+                    all_results.update(future.result())
                 except Exception as e:
-                    logger.error("Chunk rendering failed: %s", e)
+                    logger.error("Chunk failed: %s", e)
 
-        logger.info(
-            "Rendering complete: %d/%d pages (%.0f%% cached)",
-            len(all_results), len(page_numbers),
-            len(cached) / len(page_numbers) * 100 if page_numbers else 0,
-        )
+        logger.info("Rendering done: %d pages total", len(all_results))
         return all_results
 
     @staticmethod
-    def _split_into_chunks(items: list, num_chunks: int) -> list[list]:
-        """Split a list into approximately equal chunks."""
-        chunk_size = max(1, len(items) // num_chunks)
-        chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
-        return chunks
+    def _split_chunks(items: list, n: int) -> list[list]:
+        size = max(1, len(items) // n)
+        return [items[i:i + size] for i in range(0, len(items), size)]
