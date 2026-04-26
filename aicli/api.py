@@ -193,13 +193,11 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
         if not image_urls:
             frappe.throw("No images found after unzipping the archive.")
             
-        # Create the pages in the DB using the resolved URLs
+        # Create the pages in the DB using the standard File URLs
         pages_data = []
-        from aicli.domains.ocr.file_manager import FileManager
         for i, url in enumerate(image_urls):
-            # We still need the absolute path for the LLM worker to read the file
-            abs_path = FileManager.get_full_path_from_url(url)
-            pages_data.append({"page_number": i + 1, "image_path": abs_path})
+            # We store the URL (/files/...) in the DB for portability
+            pages_data.append({"page_number": i + 1, "image_path": url})
             
         svc._repo.create_pages(job_name, pages_data)
         

@@ -30,7 +30,7 @@ class ModelManager:
         self.load_model(model_name)
 
     def load_model(self, model_name: str) -> None:
-        """Load a model via the LM Studio REST API."""
+        """Load a model via the LM Studio REST API. Raises on failure."""
         url = f"{self._api_root}{LMS_LOAD_ENDPOINT}"
         payload = {
             "model": model_name,
@@ -46,9 +46,17 @@ class ModelManager:
             if res.ok:
                 logger.info("Model loaded: %s", res.json())
             else:
-                logger.error("Load failed: %s %s", res.status_code, res.text)
+                error_msg = f"LM Studio load failed ({res.status_code}): {res.text}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+        except requests.exceptions.Timeout:
+            error_msg = f"LM Studio timed out after {MODEL_LOAD_TIMEOUT}s while loading {model_name}. Is the model too large or disk too slow?"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         except Exception as e:
-            logger.error("Load request failed: %s", e)
+            error_msg = f"LM Studio load request failed: {str(e)}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
     def unload_model(self, model_name: str) -> None:
         """Unload a model via the LM Studio REST API."""
