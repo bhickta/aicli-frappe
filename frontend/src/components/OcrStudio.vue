@@ -361,7 +361,8 @@ onUnmounted(() => {
               <span class="status-badge" :style="{ background: statusColor(jobDetail.status) }">
                 {{ jobDetail.status }}
               </span>
-              <span>{{ jobDetail.completed_pages }} / {{ jobDetail.total_pages }} pages</span>
+              <span class="count-badge">📸 {{ jobDetail.rendered_pages }} / {{ jobDetail.total_pages }} images</span>
+              <span class="count-badge">🧠 {{ jobDetail.completed_pages }} / {{ jobDetail.total_pages }} ocr</span>
               <span v-if="jobDetail.failed_pages" class="error-tag">{{ jobDetail.failed_pages }} failed</span>
               <span class="model-tag">🤖 {{ jobDetail.model_name }}</span>
             </div>
@@ -712,11 +713,14 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.model-tag {
+.model-tag, .count-badge {
   background: rgba(255,255,255,0.06);
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 11px;
+}
+.count-badge {
+  color: var(--text-secondary);
 }
 
 .detail-actions {
