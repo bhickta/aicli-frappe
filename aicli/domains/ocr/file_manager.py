@@ -66,3 +66,26 @@ class FileManager:
         if not os.path.isfile(abs_path):
             frappe.throw(f"ZIP file not found: {abs_path}")
         return abs_path
+
+    @staticmethod
+    def extract_zip(zip_path: str, images_dir: str) -> list[str]:
+        """Extract a ZIP file and return a sorted list of image paths."""
+        import zipfile
+        
+        os.makedirs(images_dir, exist_ok=True)
+        
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(images_dir)
+        except Exception as e:
+            frappe.throw(f"Failed to extract ZIP: {e}")
+            
+        allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
+        extracted_images = []
+        for root, _, files in os.walk(images_dir):
+            for file in files:
+                if any(file.lower().endswith(ext) for ext in allowed_exts):
+                    extracted_images.append(os.path.join(root, file))
+                    
+        extracted_images.sort()
+        return extracted_images

@@ -134,26 +134,9 @@ class OcrJobService:
 
     def _extract_phase(self, job, images_dir: str) -> None:
         """Phase 1: Extract all images from the uploaded ZIP file."""
-        import zipfile
-        import glob
-        
-        self._file_manager.ensure_dir(images_dir)
-        
         logger.info("Extracting %s to %s", job.zip_path, images_dir)
-        try:
-            with zipfile.ZipFile(job.zip_path, 'r') as zip_ref:
-                zip_ref.extractall(images_dir)
-        except Exception as e:
-            frappe.throw(f"Failed to extract ZIP: {e}")
-            
-        allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
-        extracted_images = []
-        for root, dirs, files in os.walk(images_dir):
-            for file in files:
-                if any(file.lower().endswith(ext) for ext in allowed_exts):
-                    extracted_images.append(os.path.join(root, file))
-                    
-        extracted_images.sort()
+        
+        extracted_images = self._file_manager.extract_zip(job.zip_path, images_dir)
         
         total_pages = len(extracted_images)
         if total_pages == 0:
