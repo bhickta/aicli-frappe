@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import frappe
 
-from .constants import STATUS_RENDERING, STATUS_PROCESSING
+from .constants import STATUS_PROCESSING
 from .repository import OcrRepository
 from .llm_caller import LlmCaller
 from .markdown_writer import MarkdownWriter
