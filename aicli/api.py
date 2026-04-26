@@ -145,21 +145,55 @@ def upload_pdfs():
 # ──────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def start_zip_ocr(zip_path, model_name=None, max_workers=3):
-    """Create and enqueue an OCR job from a ZIP file."""
+def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None):
+    """Start OCR job from a Frappe File URL."""
     from aicli.domains.ocr.job_service import OcrJobService
-    from aicli.domains.ocr.constants import DEFAULT_MODEL, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
-    svc = OcrJobService()
+    from aicli.domains.ocr.constants import DEFAULT_MODEL, DEFAULT_MAX_WORKERS, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
+
     if not model_name:
         doc = frappe.get_single("AICLI Settings")
         model_name = doc.model_name or DEFAULT_MODEL
-    # We will compute total_pages upon extraction inside the job
-    job_name = svc.create_job(zip_path, model_name)
+
+    if max_workers is None:
+        max_workers = DEFAULT_MAX_WORKERS
+
+    # 1. Fetch the File DocType
+    file_doc = frappe.get_doc("File", {"file_url": file_url})
+    
+    # 2. Unzip it
+    # We use frappe's native unzip. It returns a list of File docs or we just rely on its behavior.
+    file_doc.unzip()
+    
+    # After unzip, the files are typically created with `attached_to_folder` or `folder`.
+    # `unzip()` creates a new folder named after the zip file (without extension) if one doesn't exist,
+    # and places all extracted files there.
+    import os
+    folder_name = os.path.splitext(file_doc.file_name)[0]
+    
+    # Fetch all newly created file docs
+    extracted_files = frappe.get_all("File", filters={"folder": folder_name, "is_folder": 0}, fields=["name", "file_url", "folder"])
+    if not extracted_files:
+        # Fallback if folder logic differs: fetch files attached to same parent
+        extracted_files = frappe.get_all("File", filters={"attached_to_name": file_doc.attached_to_name, "is_folder": 0, "name": ("!=", file_doc.name)}, fields=["name", "file_url", "folder"])
+        
+    if not extracted_files:
+        frappe.throw("No files found after unzipping the archive.")
+
+    file_docs = [frappe.get_doc("File", f.name) for f in extracted_files]
+
+    # Create job using the new repository method
+    svc = OcrJobService()
+    job_name = svc.create_job_from_files(file_docs, model_name)
+
     frappe.enqueue(
         "aicli.domains.ocr.tasks.run_ocr_job",
-        ocr_job_name=job_name, max_workers=int(max_workers),
-        queue=ENQUEUE_QUEUE, timeout=ENQUEUE_TIMEOUT, is_async=True,
+        ocr_job_name=job_name, 
+        max_workers=max_workers,
+        queue=ENQUEUE_QUEUE, 
+        timeout=ENQUEUE_TIMEOUT, 
+        is_async=True,
     )
+
     return {"job_name": job_name, "status": "Queued"}
 
 @frappe.whitelist()
@@ -211,35 +245,3 @@ def reset_ocr_job(job_name):
     from aicli.domains.ocr.job_service import OcrJobService
     OcrJobService().reset_job(job_name)
     return {"ok": True}
-
-@frappe.whitelist()
-def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None):
-    """Start OCR job from a Frappe File URL."""
-    from aicli.domains.ocr.job_service import OcrJobService
-    from aicli.domains.ocr.file_manager import FileManager
-    from aicli.domains.ocr.constants import DEFAULT_MODEL, DEFAULT_MAX_WORKERS, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
-
-    # Resolve URL to local path
-    zip_path = FileManager.get_full_path_from_url(file_url)
-    
-    if not model_name:
-        doc = frappe.get_single("AICLI Settings")
-        model_name = doc.model_name or DEFAULT_MODEL
-
-    if max_workers is None:
-        max_workers = DEFAULT_MAX_WORKERS
-
-    svc = OcrJobService()
-    job_name = svc.create_job(zip_path, model_name)
-
-    frappe.enqueue(
-        "aicli.domains.ocr.tasks.run_ocr_job",
-        ocr_job_name=job_name, 
-        max_workers=max_workers,
-        queue=ENQUEUE_QUEUE, 
-        timeout=ENQUEUE_TIMEOUT, 
-        is_async=True,
-    )
-
-    return {"job_name": job_name, "zip_path": zip_path, "status": "Queued"}
-
