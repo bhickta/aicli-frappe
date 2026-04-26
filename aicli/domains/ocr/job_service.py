@@ -136,13 +136,18 @@ class OcrJobService:
     # ─── Private: Render Phase ────────────────────────────────────
 
     def _render_phase(self, job, pending: list[dict], images_dir: str, max_workers: int) -> None:
-        """Render all pending pages to images."""
+        """Render all pending pages to images.
+
+        Uses sequential rendering (max_workers=1) to keep memory usage minimal.
+        PDF rendering is I/O-bound and fast; the LLM phase is the real bottleneck.
+        """
         page_names = [p["name"] for p in pending]
         self._repo.bulk_set_status(page_names, STATUS_RENDERING)
 
         page_numbers = [p["page_number"] for p in pending]
         renderer = PdfRenderer(job.pdf_path, images_dir, job.dpi)
-        results = renderer.render_pages(page_numbers, max_workers)
+        # Force sequential rendering to avoid memory multiplication from parallel subprocess PDF loads
+        results = renderer.render_pages(page_numbers, max_workers=1)
 
         for p_num, img_path in results.items():
             self._repo.set_page_rendering_done(job.name, p_num, img_path)

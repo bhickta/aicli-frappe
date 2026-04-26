@@ -2,12 +2,20 @@
 
 Uses PyMuPDF (fitz) to render each page at configurable DPI, avoiding large RAM/swap usage.
 Already-converted pages are skipped for resumability.
+
+Memory safety:
+  - Explicit pixmap disposal after each page (``del pix``)
+  - Periodic ``gc.collect()`` to reclaim any lingering C-level buffers
 """
+import gc
 from pathlib import Path
 
 import fitz
 
 from aicli.domains.analyze.database import AnalyzeDB
+
+# Force GC every N pages to release PyMuPDF's native allocations
+_GC_EVERY_N_PAGES = 5
 
 
 class PDFConverterService:
@@ -40,14 +48,21 @@ class PDFConverterService:
         mat = fitz.Matrix(zoom, zoom)
 
         count = 0
-        for i, page in enumerate(doc, start=1):
-            image_path = pdf_image_dir / f"page_{i:04d}.png"
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            pix.save(str(image_path))
-            db.insert_page(pdf_name, i, str(image_path))
-            count += 1
+        try:
+            for i, page in enumerate(doc, start=1):
+                image_path = pdf_image_dir / f"page_{i:04d}.png"
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                pix.save(str(image_path))
+                # Release native pixel buffer immediately to avoid accumulation
+                del pix
+                db.insert_page(pdf_name, i, str(image_path))
+                count += 1
 
-        doc.close()
+                if count % _GC_EVERY_N_PAGES == 0:
+                    gc.collect()
+        finally:
+            doc.close()
+
         db.log_processing(pdf_name, "pdf_to_images", "done")
         return count
 

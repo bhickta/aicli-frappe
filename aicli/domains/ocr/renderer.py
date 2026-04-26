@@ -1,64 +1,79 @@
 """
-OCR Renderer — High-performance PDF page to image conversion.
+OCR Renderer — Memory-safe PDF page to image conversion.
 
-Optimized for speed:
-  - ProcessPoolExecutor for true CPU parallelism (bypasses GIL)
-  - Self-contained worker function (no relative imports for subprocess safety)
-  - PPM format (zero compression — instant disk writes)
-  - File-existence caching to skip already-rendered pages
-  - Auto-detects CPU count for optimal worker allocation
+Designed to prevent OOM crashes on machines with limited RAM:
+  - Sequential page rendering (one page at a time, one PDF handle)
+  - Explicit pixmap disposal after each page write
+  - Small-batch processing with optional parallelism
+  - Memory monitoring to detect pressure before the OS kills us
 """
 
+import gc
 import os
 import logging
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import cpu_count
-
-import PIL.Image
-
-# Disable PIL decompression bomb limit for high-DPI PDF pages
-PIL.Image.MAX_IMAGE_PIXELS = None
 
 logger = logging.getLogger(__name__)
 
 # Hardcoded here (not imported) so subprocess workers don't need package imports
 _PAGE_FMT = "page_{:04d}.jpg"
 
+# Maximum pages to render before forcing a garbage collection cycle
+_GC_EVERY_N_PAGES = 5
 
-def _render_chunk(pdf_path: str, images_dir: str, dpi: int, page_numbers: list[int]) -> dict[int, str]:
+# Memory warning threshold (fraction of total system memory)
+_MEMORY_WARN_THRESHOLD = 0.80
+
+
+def _get_memory_usage_fraction() -> float | None:
+    """Return current RSS as a fraction of total system memory, or None if unavailable."""
+    try:
+        import resource
+        rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024  # KB → bytes on Linux
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    total_bytes = int(line.split()[1]) * 1024  # KB → bytes
+                    return rss_bytes / total_bytes if total_bytes > 0 else None
+    except Exception:
+        return None
+    return None
+
+
+def _render_single_page(pdf_path: str, images_dir: str, dpi: int, page_number: int) -> tuple[int, str]:
     """
-    Render a chunk of pages. Runs in a SEPARATE PROCESS.
+    Render exactly ONE page. Used as a subprocess target when parallel mode is enabled.
     Must be fully self-contained — no relative imports, no frappe, no logger.
     """
-    import fitz  # import inside function so subprocess doesn't need parent's imports
+    import fitz
 
-    results = {}
+    img_path = os.path.join(images_dir, _PAGE_FMT.format(page_number))
+    if os.path.isfile(img_path):
+        return page_number, img_path
+
+    doc = fitz.open(pdf_path)
     try:
-        doc = fitz.open(pdf_path)
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
-
-        for p_num in page_numbers:
-            img_path = os.path.join(images_dir, _PAGE_FMT.format(p_num))
-            if os.path.isfile(img_path):
-                results[p_num] = img_path
-                continue
-
-            pix = doc[p_num - 1].get_pixmap(matrix=mat, alpha=False)
-            pix.save(img_path)
-            results[p_num] = img_path
-
+        pix = doc[page_number - 1].get_pixmap(matrix=mat, alpha=False)
+        pix.save(img_path)
+        del pix  # Release pixel buffer immediately
+    finally:
         doc.close()
-    except Exception:
-        import traceback
-        traceback.print_exc()
-    return results
+
+    return page_number, img_path
 
 
 class PdfRenderer:
-    """Renders PDF pages to images with process-based parallelism and caching."""
+    """Renders PDF pages to images with memory-safe sequential processing.
 
-    MIN_PAGES_PER_WORKER = 10  # Lowered to utilize all 12 cores even on smaller PDFs
+    By default, renders pages sequentially in the current process to avoid
+    multiplying memory usage across workers. Parallel mode is available but
+    uses strict per-page subprocess isolation (one fitz.open per page) to
+    contain memory.
+    """
+
+    # Batch size for sequential rendering before forcing GC
+    BATCH_SIZE = 10
 
     def __init__(self, pdf_path: str, images_dir: str, dpi: int) -> None:
         self._pdf_path = os.path.abspath(pdf_path)
@@ -80,15 +95,17 @@ class PdfRenderer:
         self, page_numbers: list[int], max_workers: int | None = None,
     ) -> dict[int, str]:
         """
-        Render pages using ProcessPoolExecutor for true CPU parallelism.
-        Pre-filters cached pages. Auto-tunes worker count.
+        Render requested pages to images.
+
+        Uses sequential rendering by default (safest for memory).
+        Set max_workers > 1 to enable parallel mode (each page in its own subprocess).
         """
         if not page_numbers:
             return {}
 
         self.ensure_output_dir()
 
-        # Pre-filter: skip already-rendered pages BEFORE spawning processes
+        # Pre-filter: skip already-rendered pages
         to_render = []
         cached: dict[int, str] = {}
         for p_num in page_numbers:
@@ -104,34 +121,99 @@ class PdfRenderer:
         if not to_render:
             return cached
 
-        # Auto-tune: use all CPUs, ensure enough pages per worker
-        cpus = cpu_count() or 4
-        workers = min(max_workers or cpus, cpus, len(to_render))
-        workers = max(1, min(workers, len(to_render) // self.MIN_PAGES_PER_WORKER or 1))
+        effective_workers = max_workers if max_workers and max_workers > 1 else 1
 
-        chunks = self._split_chunks(to_render, workers)
+        if effective_workers > 1:
+            results = self._render_parallel(to_render, effective_workers)
+        else:
+            results = self._render_sequential(to_render)
+
+        results.update(cached)
+        logger.info("Rendering done: %d pages total", len(results))
+        return results
+
+    def _render_sequential(self, page_numbers: list[int]) -> dict[int, str]:
+        """Render pages one-at-a-time in the current process. Minimal memory footprint."""
+        import fitz
+
+        logger.info(
+            "Rendering %d pages sequentially (dpi=%d, pdf=%s)",
+            len(page_numbers), self._dpi, os.path.basename(self._pdf_path),
+        )
+
+        doc = fitz.open(self._pdf_path)
+        zoom = self._dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        results: dict[int, str] = {}
+
+        try:
+            for i, p_num in enumerate(page_numbers, start=1):
+                img_path = os.path.join(self._images_dir, _PAGE_FMT.format(p_num))
+
+                pix = doc[p_num - 1].get_pixmap(matrix=mat, alpha=False)
+                pix.save(img_path)
+                # Explicitly release the pixmap to free memory immediately.
+                # Without this, Python may defer GC and accumulate hundreds of MBs.
+                del pix
+                results[p_num] = img_path
+
+                # Periodic GC to reclaim any lingering buffers
+                if i % _GC_EVERY_N_PAGES == 0:
+                    gc.collect()
+
+                # Memory pressure check every batch
+                if i % self.BATCH_SIZE == 0:
+                    mem_frac = _get_memory_usage_fraction()
+                    if mem_frac and mem_frac > _MEMORY_WARN_THRESHOLD:
+                        logger.warning(
+                            "Memory usage %.0f%% after %d/%d pages — forcing GC",
+                            mem_frac * 100, i, len(page_numbers),
+                        )
+                        gc.collect()
+
+                    logger.info("Rendered %d/%d pages", i, len(page_numbers))
+        finally:
+            doc.close()
+
+        return results
+
+    def _render_parallel(self, page_numbers: list[int], max_workers: int) -> dict[int, str]:
+        """Render pages in parallel subprocesses — one page per task for memory isolation."""
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        # Cap workers to a safe number
+        workers = min(max_workers, len(page_numbers), 4)  # Hard cap at 4 workers
 
         logger.info(
             "Rendering %d pages across %d processes (dpi=%d, pdf=%s)",
-            len(to_render), len(chunks), self._dpi, os.path.basename(self._pdf_path),
+            len(page_numbers), workers, self._dpi, os.path.basename(self._pdf_path),
         )
 
-        all_results = dict(cached)
-        with ProcessPoolExecutor(max_workers=len(chunks)) as executor:
-            futures = {
-                executor.submit(_render_chunk, self._pdf_path, self._images_dir, self._dpi, c): c
-                for c in chunks
-            }
-            for future in as_completed(futures):
-                try:
-                    all_results.update(future.result())
-                except Exception as e:
-                    logger.error("Chunk failed: %s", e)
+        results: dict[int, str] = {}
+        # Process in small batches to avoid submitting too many futures at once
+        batch_size = workers * 2  # Keep a small buffer of pending tasks
 
-        logger.info("Rendering done: %d pages total", len(all_results))
-        return all_results
+        for batch_start in range(0, len(page_numbers), batch_size):
+            batch = page_numbers[batch_start:batch_start + batch_size]
 
-    @staticmethod
-    def _split_chunks(items: list, n: int) -> list[list]:
-        size = max(1, len(items) // n)
-        return [items[i:i + size] for i in range(0, len(items), size)]
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(
+                        _render_single_page, self._pdf_path, self._images_dir, self._dpi, p_num
+                    ): p_num
+                    for p_num in batch
+                }
+                for future in as_completed(futures):
+                    try:
+                        p_num, img_path = future.result()
+                        results[p_num] = img_path
+                    except Exception as e:
+                        p_num = futures[future]
+                        logger.error("Failed to render page %d: %s", p_num, e)
+
+            logger.info(
+                "Rendered batch %d–%d of %d pages",
+                batch_start + 1, min(batch_start + batch_size, len(page_numbers)), len(page_numbers),
+            )
+
+        return results

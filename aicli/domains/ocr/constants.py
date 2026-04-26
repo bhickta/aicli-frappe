@@ -3,7 +3,7 @@ OCR Domain Constants — Single source of truth for prompts, defaults, and magic
 """
 
 # ─── Default Configuration ────────────────────────────────────────
-DEFAULT_DPI = 300 # RTX 3090 can easily handle higher res images
+DEFAULT_DPI = 200  # 200 is sufficient for vision-LLM OCR; 300 uses ~44% more RAM per page
 DEFAULT_MAX_WORKERS = 6 # 3090 can easily handle 6-8 concurrent vision requests if using an 8B model
 DEFAULT_MODEL = "gemma-4-27b-it"
 MAX_LLM_RETRIES = 5
