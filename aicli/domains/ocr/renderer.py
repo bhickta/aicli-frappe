@@ -55,7 +55,15 @@ def _render_single_page(pdf_path: str, images_dir: str, dpi: int, page_number: i
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
         pix = doc[page_number - 1].get_pixmap(matrix=mat, alpha=False)
-        pix.save(img_path)
+        
+        # PyMuPDF's default save creates massive files. 
+        # Convert to PIL and compress to drastically reduce size.
+        from PIL import Image
+        Image.MAX_IMAGE_PIXELS = None
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        img.save(img_path, "JPEG", quality=85, optimize=True)
+        
+        del img
         del pix  # Release pixel buffer immediately
     finally:
         doc.close()
