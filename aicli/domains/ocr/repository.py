@@ -31,6 +31,7 @@ class OcrRepository:
         output_path: str,
         model_name: str,
         total_pages: int,
+        shutdown_after_completion: bool = False,
     ) -> str:
         """Insert a new OCR Job record. Returns the job name."""
         job = frappe.get_doc({
@@ -38,6 +39,7 @@ class OcrRepository:
             "zip_path": zip_path,
             "output_path": output_path,
             "model_name": model_name,
+            "shutdown_after_completion": shutdown_after_completion,
             "status": JOB_QUEUED,
             "total_pages": total_pages,
             "completed_pages": 0,

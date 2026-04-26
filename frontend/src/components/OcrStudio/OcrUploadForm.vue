@@ -5,6 +5,7 @@
 defineProps<{
   selectedModel: string
   maxWorkers: number
+  shutdownAfterCompletion: boolean
   availableModels: string[]
   loadingModels: boolean
   uploading: boolean
@@ -13,6 +14,7 @@ defineProps<{
 const emit = defineEmits<{
   'update:selectedModel': [value: string]
   'update:maxWorkers': [value: number]
+  'update:shutdownAfterCompletion': [value: boolean]
   'native-upload': []
   'refresh-models': []
 }>()
@@ -58,15 +60,15 @@ const emit = defineEmits<{
         </div>
       </div>
 
-      <div class="form-group">
-        <label>Parallel Pages (Concurrency)</label>
-        <input
-          type="number"
-          :value="maxWorkers"
-          @input="emit('update:maxWorkers', Number(($event.target as HTMLInputElement).value))"
-          min="1" max="32" step="1"
-          class="form-input"
-        />
+      <div class="form-group checkbox-group">
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            :checked="shutdownAfterCompletion"
+            @change="emit('update:shutdownAfterCompletion', ($event.target as HTMLInputElement).checked)"
+          />
+          🌙 Shutdown PC after completion
+        </label>
       </div>
 
       <div class="info-note" v-if="!uploading">

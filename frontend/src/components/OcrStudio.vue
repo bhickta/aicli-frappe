@@ -62,11 +62,13 @@ async function handleDelete(jobName: string) {
       <OcrUploadForm
         :selected-model="selectedModel"
         :max-workers="maxWorkers"
+        :shutdown-after-completion="shutdownAfterCompletion"
         :available-models="availableModels"
         :loading-models="loadingModels"
         :uploading="uploading"
         @update:selected-model="selectedModel = $event"
         @update:max-workers="maxWorkers = $event"
+        @update:shutdown-after-completion="shutdownAfterCompletion = $event"
         @native-upload="handleNativeUpload"
         @refresh-models="refreshModels"
       />

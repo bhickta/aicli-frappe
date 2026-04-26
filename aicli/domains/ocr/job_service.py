@@ -117,7 +117,7 @@ class OcrJobService:
         pages = self._repo.get_completed_page_markdowns(job_name)
         return MarkdownWriter.assemble_from_pages(pages)
 
-    def create_job(self, zip_path: str, output_path: str, model_name: str, total_pages: int) -> str:
+    def create_job(self, zip_path: str, output_path: str, model_name: str, total_pages: int, shutdown_after_completion: bool = False) -> str:
         """Create a new OCR job using Frappe records."""
         # For 'Native Unzip', we use the zip name to create a result File doc
         filename = "ocr_result.md"
@@ -137,7 +137,7 @@ class OcrJobService:
             "is_private": 0
         }).insert(ignore_permissions=True)
         
-        job_name = self._repo.create_job(zip_path, res_file.get_full_path(), model_name, total_pages)
+        job_name = self._repo.create_job(zip_path, res_file.get_full_path(), model_name, total_pages, shutdown_after_completion=shutdown_after_completion)
         
         # Link the result file to the job
         res_file.attached_to_doctype = "OCR Job"
