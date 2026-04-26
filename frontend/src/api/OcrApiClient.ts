@@ -23,6 +23,10 @@ export class OcrApiClient {
     return frappe.call('resume_ocr', { job_name: jobName, max_workers: maxWorkers || 3 })
   }
 
+  async stopJob(jobName: string): Promise<any> {
+    return frappe.call('stop_ocr', { job_name: jobName })
+  }
+
   async deleteJob(jobName: string): Promise<any> {
     return frappe.call('delete_ocr_job', { job_name: jobName })
   }

@@ -149,6 +149,11 @@ class OcrService:
         )
 
         for i in range(0, len(pending_pages), max_workers):
+            job.reload()
+            if job.status not in ["Running", "Queued"]:
+                logger.info("OCR Job %s was stopped by user. Exiting worker loop.", job_name)
+                break
+                
             batch = pending_pages[i : i + max_workers]
 
             # 1) Render images and mark as Processing
@@ -195,12 +200,28 @@ class OcrService:
                             
                         if attempt < max_attempts - 1:
                             if "model has crashed" in error_str.lower():
-                                logger.error("Model crashed! Attempting to revive %s...", job.model_name)
+                                import threading
                                 import subprocess
-                                subprocess.run(["lms", "unload", "--all"], capture_output=True)
-                                time.sleep(1)
-                                subprocess.run(["lms", "load", job.model_name], capture_output=True)
-                                sleep_time = 5.0 # wait longer after a crash recovery
+                                # Use a lock attached to the class or module so all threads share it
+                                if not hasattr(self.__class__, "_revive_lock"):
+                                    self.__class__._revive_lock = threading.Lock()
+                                
+                                # Only one thread should do the restart, others wait
+                                if self.__class__._revive_lock.acquire(blocking=False):
+                                    try:
+                                        logger.error("Model crashed! Attempting to revive %s...", job.model_name)
+                                        subprocess.run(["lms", "unload", "--all"], capture_output=True)
+                                        time.sleep(2)
+                                        subprocess.run(["lms", "load", job.model_name], capture_output=True)
+                                    finally:
+                                        self.__class__._revive_lock.release()
+                                        sleep_time = 5.0
+                                else:
+                                    # Another thread is already restarting it, just wait
+                                    logger.warning("Another thread is reviving the model. Waiting...")
+                                    self.__class__._revive_lock.acquire(blocking=True)
+                                    self.__class__._revive_lock.release()
+                                    sleep_time = random.uniform(2.0, 4.0)
                             else:
                                 sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
                                 
