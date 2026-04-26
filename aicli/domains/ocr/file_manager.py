@@ -18,9 +18,9 @@ class FileManager:
     """Manages physical files and directories for OCR jobs."""
 
     @staticmethod
-    def build_output_path(pdf_path: str) -> str:
-        """Derive the markdown output path from the PDF path."""
-        stem = Path(pdf_path).stem
+    def build_output_path(zip_path: str) -> str:
+        """Derive the markdown output path from the ZIP path."""
+        stem = Path(zip_path).stem
         output_dir = os.path.join(
             frappe.get_site_path("public", "files", OCR_FILES_DIR), stem,
         )
@@ -60,9 +60,9 @@ class FileManager:
             logger.info("Preserved images for completed job")
 
     @staticmethod
-    def validate_pdf(pdf_path: str) -> str:
-        """Validate and return the absolute PDF path."""
-        abs_path = os.path.abspath(pdf_path)
+    def validate_zip(zip_path: str) -> str:
+        """Validate and return the absolute ZIP path."""
+        abs_path = os.path.abspath(zip_path)
         if not os.path.isfile(abs_path):
-            frappe.throw(f"PDF file not found: {abs_path}")
+            frappe.throw(f"ZIP file not found: {abs_path}")
         return abs_path
