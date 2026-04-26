@@ -109,11 +109,14 @@ class OcrService:
         logger.info("OCR job %s created — %d pages from %s", job.name, total_pages, pdf_path)
         return job.name
 
-    def run_job(self, job_name: str, max_workers: int = 3) -> None:
+    def run_job(self, job_name: str, max_workers: int = 1) -> None:
         """
         Process all pending pages for the given job.
+        Pages are processed strictly one at a time to avoid GPU KV cache exhaustion.
         Saves after every page so progress is visible and the job is resumable.
         """
+        import random
+
         job = frappe.get_doc("OCR Job", job_name)
         if job.status == "Completed":
             return
@@ -138,8 +141,6 @@ class OcrService:
         images_dir = os.path.join(os.path.dirname(job.output_path), "images")
         os.makedirs(images_dir, exist_ok=True)
 
-        import concurrent.futures
-
         # Get pending pages (for resume)
         pending_pages = frappe.get_all(
             "OCR Page",
@@ -148,116 +149,102 @@ class OcrService:
             order_by="page_number asc",
         )
 
-        for i in range(0, len(pending_pages), max_workers):
+        for page_rec in pending_pages:
+            # ── Check for user-initiated stop ──
             job.reload()
             if job.status not in ["Running", "Queued"]:
                 logger.info("OCR Job %s was stopped by user. Exiting worker loop.", job_name)
                 break
-                
-            batch = pending_pages[i : i + max_workers]
 
-            # 1) Render images and mark as Processing
-            for page_rec in batch:
-                page_doc = frappe.get_doc("OCR Page", page_rec["name"])
-                page_doc.status = "Processing"
-                try:
-                    img_path = self._render_page(pdf_doc, page_rec["page_number"], images_dir, job.dpi)
-                    page_doc.image_path = img_path
-                except Exception as e:
-                    page_doc.status = "Failed"
-                    page_doc.error = f"Render failed: {str(e)[:1000]}"
+            page_doc = frappe.get_doc("OCR Page", page_rec["name"])
+            page_doc.status = "Processing"
+
+            # 1) Render page image
+            try:
+                img_path = self._render_page(pdf_doc, page_rec["page_number"], images_dir, job.dpi)
+                page_doc.image_path = img_path
+            except Exception as e:
+                page_doc.status = "Failed"
+                page_doc.error = f"Render failed: {str(e)[:1000]}"
                 page_doc.save(ignore_permissions=True)
+                frappe.db.commit()
+                continue
+            page_doc.save(ignore_permissions=True)
             frappe.db.commit()
 
-            # 2) Call LLM in parallel (only network I/O, thread safe)
-            def call_llm(p_num, i_path):
-                import random
-                prompt = OCR_PAGE_PROMPT_TEMPLATE.format(page_number=p_num, total_pages=job.total_pages)
-                start_t = time.perf_counter()
-                
-                # Add initial jitter to stagger concurrent requests and avoid hitting the LLM all at exactly the same millisecond
-                time.sleep(random.uniform(0.1, 1.5))
-                
-                max_attempts = 5
-                last_err = None
-                for attempt in range(max_attempts):
-                    try:
-                        markdown = provider.describe_image(
-                            image_path=i_path,
-                            prompt=prompt,
-                            system_prompt=OCR_SYSTEM_PROMPT,
-                            max_size=1536,  # Balanced for OCR quality vs context size
-                            temperature=0.0,
-                            max_tokens=1500, # A single page won't exceed 1500 tokens
-                            max_retries=1,   # Disable provider's internal retry to handle it here with jitter
-                        )
-                        return p_num, markdown, time.perf_counter() - start_t
-                    except Exception as e:
-                        last_err = e
-                        error_str = str(e)
-                        if hasattr(e, "response") and hasattr(e.response, "text"):
-                            error_str += f" | {e.response.text}"
-                            
-                        if attempt < max_attempts - 1:
-                            if "model has crashed" in error_str.lower():
-                                import threading
-                                import subprocess
-                                # Use a lock attached to the class or module so all threads share it
-                                if not hasattr(self.__class__, "_revive_lock"):
-                                    self.__class__._revive_lock = threading.Lock()
-                                
-                                # Only one thread should do the restart, others wait
-                                if self.__class__._revive_lock.acquire(blocking=False):
-                                    try:
-                                        logger.error("Model crashed! Attempting to revive %s...", job.model_name)
-                                        subprocess.run(["lms", "unload", "--all"], capture_output=True)
-                                        time.sleep(2)
-                                        subprocess.run(["lms", "load", job.model_name], capture_output=True)
-                                    finally:
-                                        self.__class__._revive_lock.release()
-                                        sleep_time = 5.0
-                                else:
-                                    # Another thread is already restarting it, just wait
-                                    logger.warning("Another thread is reviving the model. Waiting...")
-                                    self.__class__._revive_lock.acquire(blocking=True)
-                                    self.__class__._revive_lock.release()
-                                    sleep_time = random.uniform(2.0, 4.0)
-                            else:
-                                sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
-                                
-                            logger.warning("OCR page %d LLM call failed (%s), retrying in %.1fs...", p_num, error_str, sleep_time)
-                            time.sleep(sleep_time)
-                        else:
-                            logger.error("OCR page %d failed after %d attempts: %s", p_num, max_attempts, error_str)
-                            # Wrap the original exception with the enhanced string
-                            raise Exception(error_str) from last_err
+            # 2) Call LLM — sequential, one page at a time
+            prompt = OCR_PAGE_PROMPT_TEMPLATE.format(
+                page_number=page_rec["page_number"], total_pages=job.total_pages
+            )
+            start_t = time.perf_counter()
+            max_attempts = 5
+            success = False
 
-            futures = {}
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                for page_rec in batch:
-                    p_doc = frappe.get_doc("OCR Page", page_rec["name"])
-                    if p_doc.status == "Processing" and p_doc.image_path:
-                        futures[executor.submit(call_llm, p_doc.page_number, p_doc.image_path)] = p_doc.name
-
-            # 3) Save results sequentially
-            for future in concurrent.futures.as_completed(futures):
-                page_name = futures[future]
-                page_doc = frappe.get_doc("OCR Page", page_name)
+            for attempt in range(max_attempts):
                 try:
-                    p_num, markdown, elapsed = future.result()
+                    markdown = provider.describe_image(
+                        image_path=img_path,
+                        prompt=prompt,
+                        system_prompt=OCR_SYSTEM_PROMPT,
+                        max_size=1536,
+                        temperature=0.0,
+                        max_tokens=1500,
+                        max_retries=1,
+                    )
+                    elapsed = time.perf_counter() - start_t
                     page_doc.markdown_output = markdown
                     page_doc.processing_time = round(elapsed, 2)
                     page_doc.status = "Completed"
-                    logger.info("OCR page %d/%d done in %.1fs — job %s", p_num, job.total_pages, elapsed, job_name)
+                    logger.info(
+                        "OCR page %d/%d done in %.1fs — job %s",
+                        page_rec["page_number"], job.total_pages, elapsed, job_name,
+                    )
+                    success = True
+                    break
                 except Exception as e:
-                    logger.error("OCR page %s failed: %s", page_doc.page_number, e)
-                    page_doc.status = "Failed"
-                    page_doc.error = str(e)[:2000]
-                page_doc.save(ignore_permissions=True)
+                    error_str = str(e)
+                    if hasattr(e, "response") and hasattr(e.response, "text"):
+                        error_str += f" | {e.response.text}"
 
+                    is_crash = (
+                        "model has crashed" in error_str.lower()
+                        or "channel error" in error_str.lower()
+                        or "failed to process image" in error_str.lower()
+                    )
+
+                    if attempt < max_attempts - 1:
+                        if is_crash:
+                            import subprocess
+                            logger.error(
+                                "Model crashed on page %d! Attempting to revive %s...",
+                                page_rec["page_number"], job.model_name,
+                            )
+                            subprocess.run(["lms", "unload", "--all"], capture_output=True)
+                            time.sleep(3)
+                            subprocess.run(["lms", "load", job.model_name], capture_output=True)
+                            sleep_time = 5.0
+                        else:
+                            sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
+
+                        logger.warning(
+                            "OCR page %d LLM call failed (%s), retrying in %.1fs...",
+                            page_rec["page_number"], error_str, sleep_time,
+                        )
+                        time.sleep(sleep_time)
+                    else:
+                        logger.error(
+                            "OCR page %d failed after %d attempts: %s",
+                            page_rec["page_number"], max_attempts, error_str,
+                        )
+
+            if not success:
+                page_doc.status = "Failed"
+                page_doc.error = error_str[:2000]
+
+            page_doc.save(ignore_permissions=True)
             frappe.db.commit()
 
-            # 4) Update job counters & markdown
+            # 3) Update job counters & markdown after every page
             job.reload()
             job.completed_pages = frappe.db.count("OCR Page", {"ocr_job": job_name, "status": "Completed"})
             job.failed_pages = frappe.db.count("OCR Page", {"ocr_job": job_name, "status": "Failed"})

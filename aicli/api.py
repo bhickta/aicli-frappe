@@ -210,6 +210,15 @@ def resume_ocr(job_name, max_workers=3):
     return {"job_name": job_name, "status": "Resuming"}
 
 @frappe.whitelist()
+def stop_ocr(job_name):
+    """Force stop a running OCR job."""
+    job = frappe.get_doc("OCR Job", job_name)
+    job.status = "Paused"
+    job.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"status": "Paused"}
+
+@frappe.whitelist()
 def delete_ocr_job(job_name):
     """Delete an OCR job and all its pages."""
     from aicli.domains.ocr.service import OcrService
