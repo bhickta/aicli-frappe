@@ -224,12 +224,6 @@ class OcrService:
                         provider, 
                         api_root
                     )] = page_rec["name"]
-                            raise Exception(error_str)
-
-            futures = {}
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                for page_rec in batch:
-                    futures[executor.submit(call_llm, page_rec["name"], page_rec["page_number"])] = page_rec["name"]
 
             # 3) Save results
             for future in concurrent.futures.as_completed(futures):
@@ -326,12 +320,15 @@ class OcrService:
                 if os.path.exists(job.output_path):
                     os.remove(job.output_path)
                 
-                # Delete the images directory
-                images_dir = os.path.join(os.path.dirname(job.output_path), "images")
-                if os.path.exists(images_dir):
-                    import shutil
-                    shutil.rmtree(images_dir)
-                    logger.info("Deleted assets directory: %s", images_dir)
+                # Delete the images directory (only if NOT completed)
+                if job.status != "Completed":
+                    images_dir = os.path.join(os.path.dirname(job.output_path), "images")
+                    if os.path.exists(images_dir):
+                        import shutil
+                        shutil.rmtree(images_dir)
+                        logger.info("Deleted assets directory (incomplete job): %s", images_dir)
+                else:
+                    logger.info("Preserving assets directory for completed job: %s", job_name)
 
             # 2) Database cleanup
             frappe.db.delete("OCR Page", {"ocr_job": job_name})
