@@ -1,7 +1,10 @@
 import frappe
 import json
 import os
+import logging
 from aicli.config import config as aicli_config, DATA_DIR
+
+logger = logging.getLogger(__name__)
 from aicli.domains.analyze.database import AnalyzeDB
 
 @frappe.whitelist(allow_guest=True)
@@ -222,7 +225,10 @@ def upload_zip_for_ocr():
     f = frappe.request.files["file"]
     upload_dir = FileManager.get_uploads_dir()
     zip_path = os.path.join(upload_dir, f.filename)
+    
+    logger.info(f"Saving OCR ZIP upload to: {zip_path}")
     f.save(zip_path)
+    logger.info(f"Saved OCR ZIP upload ({os.path.getsize(zip_path)} bytes)")
 
     model_name = frappe.request.form.get("model_name")
     max_workers = int(frappe.request.form.get("max_workers", DEFAULT_MAX_WORKERS))

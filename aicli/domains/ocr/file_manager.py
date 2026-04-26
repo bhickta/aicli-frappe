@@ -29,7 +29,7 @@ class FileManager:
         
         # Join with bench root if not absolute
         if not os.path.isabs(site_path):
-            site_path = os.path.join(frappe.get_bench_path(), site_path)
+            site_path = os.path.join(frappe.utils.get_bench_path(), site_path)
             
         return os.path.abspath(os.path.join(site_path, *parts))
 
@@ -80,13 +80,13 @@ class FileManager:
             return os.path.abspath(zip_path)
             
         # Try relative to bench root
-        bench_relative = os.path.join(frappe.get_bench_path(), zip_path)
+        bench_relative = os.path.join(frappe.utils.get_bench_path(), zip_path)
         if os.path.isfile(bench_relative):
             return bench_relative
             
         # Try fixing the ./site-name -> sites/site-name issue
         if zip_path.startswith("./"):
-            fixed_path = os.path.join(frappe.get_bench_path(), "sites", zip_path[2:])
+            fixed_path = os.path.join(frappe.utils.get_bench_path(), "sites", zip_path[2:])
             if os.path.isfile(fixed_path):
                 return fixed_path
                 
