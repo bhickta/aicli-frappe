@@ -7,6 +7,7 @@ import { settingsApi } from '../api/SettingsApiClient'
 const jobs = ref<any[]>([])
 const selectedJob = ref<any>(null)
 const jobDetail = ref<any>(null)
+const lastUpdated = ref(new Date().toLocaleTimeString())
 const markdownOutput = ref('')
 const showMarkdown = ref(false)
 
@@ -218,6 +219,7 @@ async function poll() {
   if (selectedJob.value && jobDetail.value?.status !== 'Completed') {
     try {
       jobDetail.value = await ocrApi.getStatus(selectedJob.value)
+      lastUpdated.value = new Date().toLocaleTimeString()
     } catch { /* ignore */ }
   }
 }
@@ -365,6 +367,7 @@ onUnmounted(() => {
               <span class="count-badge">🧠 {{ jobDetail.completed_pages }} / {{ jobDetail.total_pages }} ocr</span>
               <span v-if="jobDetail.failed_pages" class="error-tag">{{ jobDetail.failed_pages }} failed</span>
               <span class="model-tag">🤖 {{ jobDetail.model_name }}</span>
+              <span class="last-updated">🕒 {{ lastUpdated }}</span>
             </div>
           </div>
           <div class="detail-actions">
@@ -721,6 +724,12 @@ onUnmounted(() => {
 }
 .count-badge {
   color: var(--text-secondary);
+}
+
+.last-updated {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
 }
 
 .detail-actions {

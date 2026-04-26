@@ -273,7 +273,10 @@ class OcrService:
             fields=["page_number", "status", "processing_time", "error"],
             order_by="page_number asc",
         )
-        rendered_pages = frappe.db.count("OCR Page", {"ocr_job": job_name, "image_path": ["!=", ""]})
+        rendered_pages = frappe.db.count("OCR Page", {
+            "ocr_job": job_name, 
+            "image_path": ["not in", [None, ""]]
+        })
         return {
             "name": job.name,
             "pdf_path": job.pdf_path,
