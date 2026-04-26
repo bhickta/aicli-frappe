@@ -128,23 +128,10 @@ class OcrService:
 
         doc = frappe.get_single("AICLI Settings")
         if doc.provider_type in ["lms", "lmstudio"]:
-            import shutil
-            import subprocess
-            if shutil.which("lms"):
-                try:
-                    logger.info("Loading model %s into LMS...", job.model_name)
-                    # Unload any existing models first for a clean VRAM state
-                    subprocess.run(["lms", "unload", "--all"], capture_output=True, timeout=30)
-                    time.sleep(1)
-                    # Load with maximum GPU offload and max context window
-                    subprocess.run(
-                        ["lms", "load", job.model_name,
-                         "--gpu", "max",
-                         "--context-length", "32768"],
-                        capture_output=True, timeout=120,
-                    )
-                except Exception as e:
-                    logger.error("Failed to load LMS model: %s", e)
+            base_url = (doc.get("lms_base_url") or doc.get("lm_studio_base_url") or "http://localhost:1234/v1").rstrip("/")
+            # Strip /v1 to get the root URL for the management API
+            api_root = base_url.replace("/v1", "")
+            self._load_model_via_api(api_root, job.model_name)
         provider = self._get_provider(job.model_name)
         pdf_doc = fitz.open(job.pdf_path)
         images_dir = os.path.join(os.path.dirname(job.output_path), "images")
