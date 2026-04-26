@@ -23,32 +23,18 @@ from frappe.utils import now_datetime
 logger = logging.getLogger(__name__)
 
 # ─── System Prompt ────────────────────────────────────────────────
-OCR_SYSTEM_PROMPT = """You are a world-class OCR engine. Your job is to convert a scanned document page image into clean, faithful Markdown text."""
+OCR_SYSTEM_PROMPT = "You are a professional document digitizer. Output valid Markdown only."
 
 # ─── Per-Page Prompt ──────────────────────────────────────────────
-OCR_PAGE_PROMPT_TEMPLATE = """Convert this scanned page (page {page_number} of {total_pages}) to clean Markdown.
+OCR_PAGE_PROMPT_TEMPLATE = """You are a high-precision OCR engine.
+Extract ALL text from this image (Page {page_number}/{total_pages}).
 
-## Rules — follow ALL of them strictly:
-
-1. **Extract ALL text faithfully.** Do not summarize, skip, or rephrase anything. Every word on the page must appear in your output.
-2. **Preserve structure.** Use proper Markdown:
-   - `#`, `##`, `###` for headings (match the visual hierarchy)
-   - `-` or `1.` for lists
-   - `| col | col |` for tables (with header separator `|---|---|`)
-   - `**bold**`, `*italic*` where the original uses them
-   - `> ` for blockquotes
-   - ``` for code blocks
-3. **Diagrams and flowcharts:** If you can represent it as ASCII art or a textual description, do so inside a fenced code block. Example:
-   ```
-   [Start] --> [Process A] --> [Decision?]
-                                 |
-                            Yes / \\ No
-                           [B]   [C]
-   ```
-4. **Images containing readable text** (signs, labels, captions, handwritten notes): Extract the text.
-5. **Photographs or complex images** that cannot be meaningfully converted to text: Insert a placeholder reference exactly like this: `<<page_{page_number}_image_N>>` where N is the image sequence number on this page (1, 2, 3…).
-6. **Reading order:** Follow the natural reading order (left-to-right, top-to-bottom). For multi-column layouts, process column by column.
-7. **Output ONLY the Markdown.** No preamble, no explanations, no "Here is the markdown:" prefix. Start directly with the content."""
+RULES:
+1. Output ONLY the extracted text in Markdown. No preamble.
+2. Preserve structure: # Headings, - Lists, | Tables |, **Bold**, *Italic*.
+3. For images/photos, use placeholder: <<page_{page_number}_image_N>>
+4. Maintain natural reading order.
+5. Do NOT repeat these instructions in the output."""
 
 
 class OcrService:
