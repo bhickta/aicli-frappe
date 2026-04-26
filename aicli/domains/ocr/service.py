@@ -303,12 +303,34 @@ class OcrService:
         )
 
     def delete_job(self, job_name: str) -> None:
-        """Delete a job and all its pages."""
-        # Delete page records
-        frappe.db.delete("OCR Page", {"ocr_job": job_name})
-        # Delete job
-        frappe.delete_doc("OCR Job", job_name, ignore_permissions=True)
-        frappe.db.commit()
+        """Delete a job, its pages, and all physical assets."""
+        try:
+            job = frappe.get_doc("OCR Job", job_name)
+            
+            # 1) Physical cleanup
+            if job.output_path:
+                # Delete the markdown file
+                if os.path.exists(job.output_path):
+                    os.remove(job.output_path)
+                
+                # Delete the images directory
+                images_dir = os.path.join(os.path.dirname(job.output_path), "images")
+                if os.path.exists(images_dir):
+                    import shutil
+                    shutil.rmtree(images_dir)
+                    logger.info("Deleted assets directory: %s", images_dir)
+
+            # 2) Database cleanup
+            frappe.db.delete("OCR Page", {"ocr_job": job_name})
+            frappe.delete_doc("OCR Job", job_name, ignore_permissions=True)
+            frappe.db.commit()
+            logger.info("Deleted OCR Job records for: %s", job_name)
+        except Exception as e:
+            logger.error("Error during job deletion: %s", e)
+            # Still try to delete from DB if file cleanup fails
+            frappe.db.delete("OCR Page", {"ocr_job": job_name})
+            frappe.delete_doc("OCR Job", job_name, ignore_permissions=True, ignore_missing=True)
+            frappe.db.commit()
 
     # ── Private Helpers ───────────────────────────────────────────
 
