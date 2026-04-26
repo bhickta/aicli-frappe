@@ -31,15 +31,18 @@ class MarkdownWriter:
             f.write(markdown)
             f.write(PAGE_MARKDOWN_SEPARATOR)
 
-    def write_full(self, pages: list[dict]) -> None:
-        """Write all completed pages as a single markdown file."""
+    def write(self, content: str) -> None:
+        """Write the entire markdown content, overwriting existing file."""
         self.ensure_dir()
         with open(self._output_path, "w", encoding="utf-8") as f:
-            for p in pages:
-                f.write(PAGE_MARKDOWN_HEADER.format(page_num=p["page_number"]))
-                f.write(p.get("markdown_output") or "")
-                f.write(PAGE_MARKDOWN_SEPARATOR)
-        logger.info("Wrote full markdown to %s (%d pages)", self._output_path, len(pages))
+            f.write(content)
+        logger.info("Wrote full markdown content to %s", self._output_path)
+
+    def write_full(self, pages: list[dict]) -> None:
+        """Write all completed pages from records as a single markdown file."""
+        content = self.assemble_from_pages(pages)
+        self.write(content)
+
 
     def read(self) -> str:
         """Read the markdown file content. Returns empty string if not found."""

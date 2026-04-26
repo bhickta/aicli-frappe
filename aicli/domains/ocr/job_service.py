@@ -69,6 +69,12 @@ class OcrJobService:
         self._llm_phase(job_name, pending, caller, writer, max_workers)
 
         # Phase 3: Finalize
+        if self._repo.get_job_status(job_name).status == JOB_COMPLETED:
+            logger.info("Finalizing job %s: Rebuilding full document in order", job_name)
+            pages = self._repo.get_completed_page_markdowns(job_name)
+            final_markdown = MarkdownWriter.assemble_from_pages(pages)
+            writer.write(final_markdown)
+
         final_status = self._repo.finalize_job(job_name)
         logger.info("Job %s finalized with status: %s", job_name, final_status)
     def get_status(self, job_name: str) -> dict:
@@ -179,6 +185,8 @@ class OcrJobService:
                 )
                 futures[future] = page_rec["name"]
 
+            # Collect batch results to sort them before writing
+            batch_results = []
             for future in as_completed(futures):
                 page_name = futures[future]
                 try:
@@ -186,14 +194,19 @@ class OcrJobService:
                     self._repo.save_page_result(
                         page_name, result.markdown, result.elapsed_seconds
                     )
-                    writer.append_page(result.page_number, result.markdown)
-                    logger.info(
-                        "Page %d/%d saved (%.1fs)",
-                        result.page_number, total_pages, result.elapsed_seconds,
-                    )
+                    batch_results.append(result)
                 except Exception as e:
                     logger.error("Page %s failed: %s", page_name, e)
                     self._repo.save_page_error(page_name, str(e))
+
+            # Write the batch in correct page order
+            batch_results.sort(key=lambda x: x.page_number)
+            for result in batch_results:
+                writer.append_page(result.page_number, result.markdown)
+                logger.info(
+                    "Page %d/%d saved (%.1fs)",
+                    result.page_number, total_pages, result.elapsed_seconds,
+                )
 
         frappe.db.commit()
 
