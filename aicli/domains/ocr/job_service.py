@@ -17,7 +17,6 @@ from .llm_caller import LlmCaller
 from .markdown_writer import MarkdownWriter
 from .model_manager import ModelManager
 from .provider_factory import ProviderFactory
-from .file_manager import FileManager
 
 logger = logging.getLogger(__name__)
 
@@ -31,43 +30,17 @@ class OcrJobService:
       - MarkdownWriter  (file I/O)
       - ModelManager     (LM Studio lifecycle)
       - ProviderFactory  (LLM provider creation)
-      - FileManager      (physical file operations)
     """
 
     def __init__(self) -> None:
         self._repo = OcrRepository()
         self._provider_factory = ProviderFactory()
-        self._file_manager = FileManager()
 
     # ─── Public API ───────────────────────────────────────────────
 
-    def create_job_from_files(self, file_docs: list, model_name: str) -> str:
-        """Create an OCR Job from a list of Frappe File documents."""
-        from aicli.domains.ocr.file_manager import FileManager
-        
-        # Use the first file's folder as a reference for output
-        first_file = file_docs[0] if file_docs else None
-        zip_path = "Native Unzip"
-        output_path = first_file.folder if first_file else "ocr_results"
-        
-        job_name = self._repo.create_job(zip_path, output_path, model_name, len(file_docs))
-        
-        # Immediately create pages from the File docs
-        pages_data = []
-        for i, fdoc in enumerate(file_docs):
-            # Resolve URL to absolute path for the LLM worker
-            abs_path = FileManager.get_full_path_from_url(fdoc.file_url)
-            
-            pages_data.append({
-                "page_number": i + 1,
-                "image_path": abs_path
-            })
-            
-        # Bulk create pages
-        self._repo.create_pages(job_name, pages_data)
-        
-        logger.info("Job %s created from %d files", job_name, len(file_docs))
-        return job_name
+    def list_jobs(self) -> list[dict]:
+        """List all OCR jobs."""
+        return self._repo.list_jobs()
 
     def run_job(self, job_name: str, max_workers: int = 3) -> None:
         """Process all pending pages: LLM → save. Resumable."""
@@ -82,10 +55,9 @@ class OcrJobService:
         # Set up infrastructure
         model_manager = self._setup_model_manager(job.model_name)
         provider = self._provider_factory.create(job.model_name)
-        # Note: images_dir is not used if we use absolute paths from File records
         writer = MarkdownWriter(job.output_path)
 
-        # Phase 1: Re-fetch pending (pages were already created during create_job_from_files)
+        # Phase 1: Re-fetch pending (pages were already created)
         pending = self._repo.get_pending_pages(job_name)
         if not pending:
             logger.info("No pending pages for job %s", job_name)
@@ -99,7 +71,6 @@ class OcrJobService:
         # Phase 3: Finalize
         final_status = self._repo.finalize_job(job_name)
         logger.info("Job %s finalized with status: %s", job_name, final_status)
-
     def get_status(self, job_name: str) -> dict:
         """Return the current status snapshot as a dict."""
         return self._repo.get_job_status(job_name).to_dict()
@@ -115,76 +86,55 @@ class OcrJobService:
         pages = self._repo.get_completed_page_markdowns(job_name)
         return MarkdownWriter.assemble_from_pages(pages)
 
-    def list_jobs(self) -> list[dict]:
-        """List all OCR jobs."""
-        return self._repo.list_jobs()
+    def create_job(self, zip_path: str, output_path: str, model_name: str, total_pages: int) -> str:
+        """Create a new OCR job using Frappe records."""
+        # For 'Native Unzip', we use the zip name to create a result File doc
+        filename = "ocr_result.md"
+        if zip_path and zip_path != "Native Unzip":
+            try:
+                zfile = frappe.get_doc("File", zip_path)
+                import os
+                filename = os.path.splitext(zfile.file_name)[0] + ".md"
+            except Exception:
+                pass
+            
+        # Create a placeholder File doc for the result
+        res_file = frappe.get_doc({
+            "doctype": "File",
+            "file_name": filename,
+            "content": "# OCR Processing...",
+            "is_private": 0
+        }).insert(ignore_permissions=True)
+        
+        job_name = self._repo.create_job(zip_path, res_file.get_full_path(), model_name, total_pages)
+        
+        # Link the result file to the job
+        res_file.attached_to_doctype = "OCR Job"
+        res_file.attached_to_name = job_name
+        res_file.save(ignore_permissions=True)
+        
+        return job_name
 
     def delete_job(self, job_name: str) -> None:
-        """Delete a job, its pages, and physical assets."""
+        """Delete a job and all its linked Frappe Files automatically."""
         try:
-            job = self._repo.get_job(job_name)
-            self._file_manager.cleanup_job_files(
-                job.output_path, job.status == "Completed"
-            )
-            
-            # Clean up native Frappe File records
-            try:
-                # Delete all files attached to this OCR Job
-                attached_files = frappe.get_all("File", filters={"attached_to_doctype": "OCR Job", "attached_to_name": job_name})
-                for ef in attached_files:
-                    frappe.delete_doc("File", ef.name, ignore_permissions=True, force=True)
-                    
-                # Also delete the ZIP file if it's stored in zip_path (it might not be attached if the user didn't attach it)
-                if job.zip_path and job.zip_path != "Native Unzip":
-                    try:
-                        # Sometimes the ZIP itself is attached to the job, so it might be deleted above.
-                        # If not, let's make sure we delete it here
-                        if frappe.db.exists("File", job.zip_path):
-                            frappe.delete_doc("File", job.zip_path, ignore_permissions=True, force=True)
-                    except Exception:
-                        pass
-            except Exception as ex:
-                logger.error("Failed to clean up Frappe File records: %s", ex)
-                    
+            attached_files = frappe.get_all("File", filters={"attached_to_doctype": "OCR Job", "attached_to_name": job_name})
+            for ef in attached_files:
+                frappe.delete_doc("File", ef.name, ignore_permissions=True, force=True)
         except Exception as e:
-            logger.error("File cleanup error: %s", e)
+            logger.error("Frappe File cleanup error: %s", e)
         self._repo.delete_job(job_name)
 
     def reset_job(self, job_name: str) -> None:
-        """Wipe OCR progress but keep rendered images."""
+        """Wipe OCR progress."""
         job = self._repo.get_job(job_name)
         writer = MarkdownWriter(job.output_path)
         writer.delete()
         self._repo.reset_job(job_name)
 
     def stop_job(self, job_name: str) -> None:
-        """Pause a running job (worker will see the status change and exit)."""
+        """Pause a running job."""
         self._repo.mark_job_paused(job_name)
-
-    # ─── Private: Two-Phase Processing ───────────────────────────
-
-    def _extract_phase(self, job, images_dir: str) -> None:
-        """Phase 1: Extract all images from the uploaded ZIP file."""
-        zip_path = self._file_manager.validate_zip(job.zip_path)
-        logger.info("Extracting %s to %s", zip_path, images_dir)
-        
-        extracted_images = self._file_manager.extract_zip(zip_path, images_dir)
-        
-        total_pages = len(extracted_images)
-        if total_pages == 0:
-            frappe.throw("ZIP file contains no valid images.")
-            
-        job.total_pages = total_pages
-        job.save(ignore_permissions=True)
-        frappe.db.commit()
-        
-        self._repo.create_pages(job.name, total_pages)
-        
-        for p_num, img_path in enumerate(extracted_images, start=1):
-            self._repo.set_page_rendering_done(job.name, p_num, img_path)
-            
-        frappe.db.commit()
-        logger.info("Extracted %d images from ZIP", total_pages)
 
     def _llm_phase(
         self, job_name: str, pending: list[dict],

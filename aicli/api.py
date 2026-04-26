@@ -169,8 +169,8 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
         if not extracted_files:
             frappe.throw("Job exists but no extracted images found. Please re-upload.")
     else:
-        # Create a new job first
-        job_name = svc._repo.create_job("Native Unzip", "ocr_results", model_name, 0)
+        # Create a new job using the service (handles result file creation)
+        job_name = svc.create_job("Native Unzip", "ocr_results", model_name, 0)
         
         # Attach the ZIP to the job so unzip() inherits this attachment!
         file_doc.attached_to_doctype = "OCR Job"
