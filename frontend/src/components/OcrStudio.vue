@@ -122,6 +122,12 @@ async function resumeJob(jobName: string) {
     return
   }
   try {
+    // If the job is currently Running, stop the old worker first
+    if (jobDetail.value?.status === 'Running') {
+      await ocrApi.stopJob(jobName)
+      // Give the old worker a moment to see the Paused status and exit
+      await new Promise(r => setTimeout(r, 2000))
+    }
     await ocrApi.resumeJob(jobName, numWorkers)
     await loadJobs()
     if (selectedJob.value === jobName) {
@@ -353,6 +359,13 @@ onUnmounted(() => {
               @click="resumeJob(jobDetail.name)"
             >
               ▶ {{ jobDetail.status === 'Running' ? 'Force Resume' : 'Resume' }}
+            </button>
+            <button
+              v-if="jobDetail.status === 'Running'"
+              class="btn btn-danger"
+              @click="stopJob(jobDetail.name)"
+            >
+              ⏹ Force Stop
             </button>
             <button
               v-if="jobDetail.completed_pages > 0"
