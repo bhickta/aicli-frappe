@@ -135,20 +135,31 @@ class OcrService:
             logger.info("No pending pages for job %s", job_name)
             return
 
-        # 1) Massive Bulk Render (Parallel)
+        # 1) Massive Bulk Render (Parallel Chunked)
         logger.info("Bulk rendering %d pages for job %s...", len(pending_pages), job_name)
-        def bulk_render(p_num):
+        
+        def render_chunk(p_nums):
+            results = {}
             try:
                 t_pdf = fitz.open(job.pdf_path)
-                path = self._render_page(t_pdf, p_num, images_dir, job.dpi)
+                for p_num in p_nums:
+                    path = self._render_page(t_pdf, p_num, images_dir, job.dpi)
+                    results[p_num] = path
                 t_pdf.close()
-                return p_num, path
             except Exception as e:
-                logger.error("Bulk render failed for page %d: %s", p_num, e)
-                return p_num, None
+                logger.error("Chunk render failed: %s", e)
+            return results
 
+        # Split pending pages into chunks (e.g., 50 pages per worker)
+        all_p_nums = [p["page_number"] for p in pending_pages]
+        chunk_size = max(1, len(all_p_nums) // (os.cpu_count() or 4))
+        chunks = [all_p_nums[x:x+chunk_size] for x in range(0, len(all_p_nums), chunk_size)]
+
+        render_results = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
-            render_results = dict(executor.map(bulk_render, [p["page_number"] for p in pending_pages]))
+            chunk_results = list(executor.map(render_chunk, chunks))
+            for res in chunk_results:
+                render_results.update(res)
 
         # Update DB with image paths
         for page_rec in pending_pages:
