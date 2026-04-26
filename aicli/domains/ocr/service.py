@@ -123,6 +123,16 @@ class OcrService:
         job.save(ignore_permissions=True)
         frappe.db.commit()
 
+        doc = frappe.get_single("AICLI Settings")
+        if doc.provider_type in ["lms", "lmstudio"]:
+            import shutil
+            import subprocess
+            if shutil.which("lms"):
+                try:
+                    logger.info("Loading model %s into LMS...", job.model_name)
+                    subprocess.run(["lms", "load", job.model_name], capture_output=True, timeout=60)
+                except Exception as e:
+                    logger.error("Failed to load LMS model: %s", e)
         provider = self._get_provider(job.model_name)
         pdf_doc = fitz.open(job.pdf_path)
         images_dir = os.path.join(os.path.dirname(job.output_path), "images")
@@ -156,18 +166,38 @@ class OcrService:
 
             # 2) Call LLM in parallel (only network I/O, thread safe)
             def call_llm(p_num, i_path):
+                import random
                 prompt = OCR_PAGE_PROMPT_TEMPLATE.format(page_number=p_num, total_pages=job.total_pages)
                 start_t = time.perf_counter()
-                markdown = provider.describe_image(
-                    image_path=i_path,
-                    prompt=prompt,
-                    system_prompt=OCR_SYSTEM_PROMPT,
-                    max_size=1536,  # Balanced for OCR quality vs context size
-                    temperature=0.0,
-                    max_tokens=1500, # A single page won't exceed 1500 tokens
-                    max_retries=2,
-                )
-                return p_num, markdown, time.perf_counter() - start_t
+                
+                # Add initial jitter to stagger concurrent requests and avoid hitting the LLM all at exactly the same millisecond
+                time.sleep(random.uniform(0.1, 1.5))
+                
+                max_attempts = 5
+                last_err = None
+                for attempt in range(max_attempts):
+                    try:
+                        markdown = provider.describe_image(
+                            image_path=i_path,
+                            prompt=prompt,
+                            system_prompt=OCR_SYSTEM_PROMPT,
+                            max_size=1536,  # Balanced for OCR quality vs context size
+                            temperature=0.0,
+                            max_tokens=1500, # A single page won't exceed 1500 tokens
+                            max_retries=1,   # Disable provider's internal retry to handle it here with jitter
+                        )
+                        return p_num, markdown, time.perf_counter() - start_t
+                    except Exception as e:
+                        last_err = e
+                        if attempt < max_attempts - 1:
+                            # Exponential backoff with jitter
+                            sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
+                            logger.warning("OCR page %d LLM call failed (%s), retrying in %.1fs...", p_num, str(e), sleep_time)
+                            time.sleep(sleep_time)
+                        else:
+                            logger.error("OCR page %d failed after %d attempts: %s", p_num, max_attempts, str(e))
+                
+                raise last_err
 
             futures = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -278,11 +308,11 @@ class OcrService:
         doc = frappe.get_single("AICLI Settings")
         provider_type = doc.provider_type or "ollama"
 
-        if provider_type == "lmstudio":
+        if provider_type in ["lms", "lmstudio"]:
             from langchain_openai import ChatOpenAI
             from aicli.providers.base import LangChainProvider
-            base_url = doc.lm_studio_base_url or "http://localhost:1234/v1"
-            api_key = doc.lm_studio_api_key or "lm_studio"
+            base_url = doc.get("lms_base_url") or doc.get("lm_studio_base_url") or "http://localhost:1234/v1"
+            api_key = doc.get("lms_api_key") or doc.get("lm_studio_api_key") or "lms"
             llm = ChatOpenAI(base_url=base_url, api_key=api_key, model=model_name)
             return LangChainProvider(llm)
         else:

@@ -20,14 +20,14 @@ try:
 except:
     DATA_DIR = Path("data")
 
-PROVIDER_TYPE_CHOICES = ["ollama", "vllm", "lmstudio", "openai", "anthropic", "gemini"]
+PROVIDER_TYPE_CHOICES = ["ollama", "vllm", "lms", "openai", "anthropic", "gemini"]
 
 
 class AppConfig(BaseModel):
     """Configuration based on JSON settings."""
 
     # --- Provider Connection ---
-    provider_type: str = "lmstudio"
+    provider_type: str = "lms"
     ollama_base_url: str = "http://localhost:11434"
     ollama_api_key: str = "ollama"
     vllm_base_url: str = "http://localhost:8000"

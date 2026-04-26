@@ -114,8 +114,15 @@ async function viewOutput() {
 }
 
 async function resumeJob(jobName: string) {
+  const userInput = prompt('Enter number of parallel pages (threads) for resuming:', maxWorkers.value.toString())
+  if (userInput === null) return // User cancelled
+  const numWorkers = parseInt(userInput)
+  if (isNaN(numWorkers) || numWorkers < 1) {
+    alert('Invalid number of threads. Please enter a positive number.')
+    return
+  }
   try {
-    await ocrApi.resumeJob(jobName)
+    await ocrApi.resumeJob(jobName, numWorkers)
     await loadJobs()
     if (selectedJob.value === jobName) {
       jobDetail.value = await ocrApi.getStatus(jobName)

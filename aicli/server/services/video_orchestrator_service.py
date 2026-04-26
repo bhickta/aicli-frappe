@@ -36,7 +36,7 @@ class VideoOrchestratorService:
             
             # Wipe LM Studio
             from aicli.config import config as aicli_config
-            if aicli_config.provider_type == "lmstudio" and shutil.which("lms"):
+            if aicli_config.provider_type in ["lms", "lmstudio"] and shutil.which("lms"):
                 console.print("[dim]Pre-flight: Nuclear VRAM Purge (lms unload --all)...[/dim]")
                 subprocess.run(["lms", "unload", "--all"], capture_output=True)
                 time.sleep(1)
@@ -220,7 +220,7 @@ class VideoOrchestratorService:
                 torch.cuda.empty_cache()
             
             # The Nuclear Option: Unload everything
-            if aicli_config.provider_type == "lmstudio" and shutil.which("lms"):
+            if aicli_config.provider_type in ["lms", "lmstudio"] and shutil.which("lms"):
                 console.print("[dim]LM Studio: Nuclear VRAM Purge (lms unload --all)...[/dim]")
                 subprocess.run(["lms", "unload", "--all"], capture_output=True)
                 time.sleep(2) # Give GPU driver time to clear VRAM

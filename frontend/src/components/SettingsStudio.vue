@@ -62,15 +62,15 @@
               </div>
             </template>
 
-            <!-- LM Studio Settings -->
-            <template v-if="settings.provider_type === 'lmstudio'">
+            <!-- LMS Settings -->
+            <template v-if="settings.provider_type === 'lms'">
               <div class="form-group span-full">
-                <label>LM Studio Base URL</label>
-                <input type="text" v-model="settings.lm_studio_base_url" placeholder="http://localhost:1234/v1" />
+                <label>LMS Base URL</label>
+                <input type="text" v-model="settings.lms_base_url" placeholder="http://localhost:1234/v1" />
               </div>
               <div class="form-group">
                 <label>API Key</label>
-                <input type="text" v-model="settings.lm_studio_api_key" placeholder="lm_studio" />
+                <input type="text" v-model="settings.lms_api_key" placeholder="lms" />
               </div>
             </template>
 
@@ -304,8 +304,8 @@ const settings = ref({
   ollama_api_key: 'ollama',
   vllm_base_url: 'http://localhost:8000',
   vllm_api_key: 'EMPTY',
-  lm_studio_base_url: 'http://localhost:1234/v1',
-  lm_studio_api_key: 'lm_studio',
+  lms_base_url: 'http://localhost:1234/v1',
+  lms_api_key: 'lms',
   openai_api_key: '',
   anthropic_api_key: '',
   gemini_api_key: '',

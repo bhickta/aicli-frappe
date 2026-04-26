@@ -33,12 +33,31 @@ def list_models():
     doc = frappe.get_single("AICLI Settings")
     provider_type = doc.provider_type
     try:
-        if provider_type == "lmstudio":
-            base_url = (doc.lm_studio_base_url or "http://localhost:1234/v1").rstrip("/")
-            res = requests.get(f"{base_url}/models", timeout=5)
-            if res.ok:
-                data = res.json()
-                return {"models": [m["id"] for m in data.get("data", []) if m.get("id")]}
+        if provider_type in ["lms", "lmstudio"]:
+            import subprocess
+            import shutil
+            if shutil.which("lms"):
+                try:
+                    subprocess.run(["lms", "server", "start"], capture_output=True, timeout=10)
+                except Exception:
+                    pass
+            base_url = doc.get("lms_base_url") or doc.get("lm_studio_base_url") or "http://localhost:1234/v1"
+            base_url = base_url.rstrip("/")
+            print(f"DEBUG: list_models using LMS base_url: {base_url}")
+            import time
+            for attempt in range(5):
+                try:
+                    res = requests.get(f"{base_url}/models", timeout=5)
+                    print(f"DEBUG: attempt {attempt} res.ok={res.ok} status={res.status_code}")
+                    if res.ok:
+                        data = res.json()
+                        return {"models": [m["id"] for m in data.get("data", []) if m.get("id")]}
+                except requests.exceptions.RequestException as e:
+                    print(f"DEBUG: attempt {attempt} failed: {e}")
+                    if attempt < 4:
+                        time.sleep(1)
+                    else:
+                        frappe.log_error(f"Failed to connect to LMS after 5 retries: {e}")
         elif provider_type == "ollama":
             base_url = (doc.ollama_base_url or "http://localhost:11434").rstrip("/")
             res = requests.get(f"{base_url}/api/tags", timeout=5)
@@ -138,7 +157,7 @@ def _run_ocr_job(ocr_job_name, max_workers=3):
     OcrService().run_job(ocr_job_name, max_workers=max_workers)
 
 @frappe.whitelist()
-def start_ocr(pdf_path, model_name=None, dpi=200):
+def start_ocr(pdf_path, model_name=None, dpi=200, max_workers=3):
     """Create and immediately start an OCR job."""
     from aicli.domains.ocr.service import OcrService
     svc = OcrService()
@@ -150,7 +169,7 @@ def start_ocr(pdf_path, model_name=None, dpi=200):
     frappe.enqueue(
         "aicli.api._run_ocr_job",
         ocr_job_name=job_name,
-        max_workers=int(frappe.request.form.get("max_workers", 3) if frappe.request else 3),
+        max_workers=int(max_workers),
         queue="long",
         timeout=3600,
         is_async=True,
@@ -176,14 +195,14 @@ def ocr_jobs():
     return OcrService().list_jobs()
 
 @frappe.whitelist()
-def resume_ocr(job_name):
+def resume_ocr(job_name, max_workers=3):
     """Resume a paused or failed OCR job."""
     from aicli.domains.ocr.service import OcrService
     svc = OcrService()
     frappe.enqueue(
         "aicli.api._run_ocr_job",
         ocr_job_name=job_name,
-        max_workers=int(frappe.request.form.get("max_workers", 3) if frappe.request else 3),
+        max_workers=int(max_workers),
         queue="long",
         timeout=3600,
         is_async=True,
