@@ -39,8 +39,10 @@ def render_pdf_pages_static(pdf_path, images_dir, dpi, p_nums):
             results[p_num] = img_path
         doc.close()
     except Exception as e:
-        # Using print as logger might not be initialized in child processes
-        print(f"Error in render_pdf_pages_static for {pdf_path}: {e}")
+        print(f"CRITICAL ERROR in rendering chunk for {pdf_path}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    return results
     return results
 
 import frappe
@@ -135,6 +137,7 @@ class OcrService:
         job.started_at = job.started_at or now_datetime()
         job.save(ignore_permissions=True)
         frappe.db.commit()
+        logger.info("OCR Job %s: Worker started run_job with max_workers=%s", job_name, max_workers)
 
         doc = frappe.get_single("AICLI Settings")
         api_root = None
@@ -159,9 +162,8 @@ class OcrService:
             logger.info("No pending pages for job %s", job_name)
             return
 
-        # 1) Massive Bulk Render (Process Parallel)
         import concurrent.futures
-        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor
         
         logger.info("Bulk rendering %d pages for job %s...", len(pending_pages), job_name)
         
@@ -173,29 +175,36 @@ class OcrService:
 
         # Split into chunks for multi-processing
         all_p_nums = [p["page_number"] for p in pending_pages]
-        num_workers = min(os.cpu_count() or 4, len(all_p_nums))
-        chunk_size = max(1, len(all_p_nums) // num_workers)
+        # Use user-specified max_workers (or CPU count if not provided)
+        render_workers = min(max_workers or os.cpu_count() or 4, len(all_p_nums))
+        chunk_size = max(1, len(all_p_nums) // render_workers)
         chunks = [all_p_nums[x:x+chunk_size] for x in range(0, len(all_p_nums), chunk_size)]
 
+        logger.info("Starting rendering with %d workers for %d pages...", render_workers, len(all_p_nums))
+        
         render_results = {}
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        with ThreadPoolExecutor(max_workers=render_workers) as executor:
             import functools
-            func = functools.partial(render_pdf_pages_static, job.pdf_path, images_dir, job.dpi)
+            abs_pdf_path = os.path.abspath(job.pdf_path)
+            abs_images_dir = os.path.abspath(images_dir)
+            func = functools.partial(render_pdf_pages_static, abs_pdf_path, abs_images_dir, job.dpi)
             
-            # Use as_completed to update DB in real-time as chunks finish
             futures = {executor.submit(func, chunk): chunk for chunk in chunks}
             for future in concurrent.futures.as_completed(futures):
-                res = future.result()
-                render_results.update(res)
-                # Update this chunk to 'Pending' (meaning ready for OCR) and save paths
-                for p_num, i_path in res.items():
-                    frappe.db.sql("""
-                        UPDATE `tabOCR Page` 
-                        SET image_path = %s, status = 'Pending'
-                        WHERE ocr_job = %s AND page_number = %s
-                    """, (i_path, job_name, p_num))
-                frappe.db.commit()
-                logger.info("Chunk of %d pages rendered for %s", len(res), job_name)
+                try:
+                    res = future.result()
+                    if not res:
+                        logger.warning("A rendering chunk returned no results.")
+                    render_results.update(res)
+                    
+                    # Bulk update this chunk
+                    for p_num, i_path in res.items():
+                        frappe.db.set_value("OCR Page", {"ocr_job": str(job_name), "page_number": p_num}, 
+                                           {"image_path": i_path, "status": "Pending"}, update_modified=False)
+                    frappe.db.commit()
+                    logger.info("Chunk of %d pages rendered for %s", len(res), job_name)
+                except Exception as e:
+                    logger.error("Failed to render a chunk of pages: %s", e)
 
         # 2) Process LLM calls in batches
         for i in range(0, len(pending_pages), max_workers):
