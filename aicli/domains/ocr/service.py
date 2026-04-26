@@ -131,7 +131,7 @@ class OcrService:
             base_url = (doc.get("lms_base_url") or doc.get("lm_studio_base_url") or "http://localhost:1234/v1").rstrip("/")
             # Strip /v1 to get the root URL for the management API
             api_root = base_url.replace("/v1", "")
-            self._load_model_via_api(api_root, job.model_name)
+            self._ensure_model_loaded(api_root, base_url, job.model_name)
         provider = self._get_provider(job.model_name)
         pdf_doc = fitz.open(job.pdf_path)
         images_dir = os.path.join(os.path.dirname(job.output_path), "images")
@@ -210,15 +210,17 @@ class OcrService:
 
                     if attempt < max_attempts - 1:
                         if is_crash:
-                            import subprocess
                             logger.error(
-                                "Model crashed on page %d! Attempting to revive %s...",
+                                "Model crashed on page %d! Attempting to revive %s via API...",
                                 page_rec["page_number"], job.model_name,
                             )
-                            subprocess.run(["lms", "unload", "--all"], capture_output=True)
-                            time.sleep(3)
-                            subprocess.run(["lms", "load", job.model_name], capture_output=True)
-                            sleep_time = 5.0
+                            try:
+                                self._unload_model_via_api(api_root, job.model_name)
+                                time.sleep(2)
+                                self._load_model_via_api(api_root, job.model_name)
+                            except Exception as revive_err:
+                                logger.error("Failed to revive model via API: %s", revive_err)
+                            sleep_time = 8.0
                         else:
                             sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
 
@@ -337,6 +339,61 @@ class OcrService:
             base_url = doc.ollama_base_url or "http://localhost:11434"
             llm = ChatOllama(base_url=base_url, model=model_name)
             return LangChainProvider(llm)
+
+    def _ensure_model_loaded(self, api_root: str, base_url: str, model_name: str) -> None:
+        """Check if model is already loaded in LM Studio. Only load if missing.
+        This preserves user's manual settings (parallel count, KV cache, etc.)."""
+        import requests
+        try:
+            res = requests.get(f"{base_url}/models", timeout=10)
+            if res.ok:
+                loaded_ids = [m["id"] for m in res.json().get("data", [])]
+                if model_name in loaded_ids:
+                    logger.info("Model %s is already loaded. Skipping reload to preserve settings.", model_name)
+                    return
+        except Exception as e:
+            logger.warning("Could not check loaded models: %s", e)
+        # Model not loaded — load it via API
+        self._load_model_via_api(api_root, model_name)
+
+    def _load_model_via_api(self, api_root: str, model_name: str) -> None:
+        """Load a model into LM Studio via the REST API with optimal settings.
+        Note: n_parallel is NOT available via the API — set it in the LM Studio UI."""
+        import requests
+        url = f"{api_root}/api/v1/models/load"
+        payload = {
+            "model": model_name,
+            "context_length": 32768,
+            "flash_attention": True,
+            "offload_kv_cache_to_gpu": False,
+            "eval_batch_size": 512,
+            "echo_load_config": True,
+        }
+        logger.info("Loading model %s via LM Studio API at %s...", model_name, url)
+        try:
+            res = requests.post(url, json=payload, timeout=120)
+            if res.ok:
+                data = res.json()
+                logger.info("Model loaded: %s", data)
+            else:
+                logger.error("Failed to load model via API: %s %s", res.status_code, res.text)
+        except Exception as e:
+            logger.error("LM Studio API load request failed: %s", e)
+
+    def _unload_model_via_api(self, api_root: str, model_name: str) -> None:
+        """Unload a model from LM Studio via the REST API."""
+        import requests
+        url = f"{api_root}/api/v1/models/unload"
+        payload = {"instance_id": model_name}
+        logger.info("Unloading model %s via LM Studio API...", model_name)
+        try:
+            res = requests.post(url, json=payload, timeout=30)
+            if res.ok:
+                logger.info("Model unloaded: %s", res.json())
+            else:
+                logger.warning("Unload response: %s %s", res.status_code, res.text)
+        except Exception as e:
+            logger.error("LM Studio API unload request failed: %s", e)
 
     def _render_page(self, pdf_doc, page_num: int, images_dir: str, dpi: int) -> str:
         """Render a single PDF page to a PNG image. Returns the file path."""

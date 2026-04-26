@@ -34,30 +34,20 @@ def list_models():
     provider_type = doc.provider_type
     try:
         if provider_type in ["lms", "lmstudio"]:
-            import subprocess
-            import shutil
-            if shutil.which("lms"):
-                try:
-                    subprocess.run(["lms", "server", "start"], capture_output=True, timeout=10)
-                except Exception:
-                    pass
             base_url = doc.get("lms_base_url") or doc.get("lm_studio_base_url") or "http://localhost:1234/v1"
             base_url = base_url.rstrip("/")
-            print(f"DEBUG: list_models using LMS base_url: {base_url}")
             import time
             for attempt in range(5):
                 try:
                     res = requests.get(f"{base_url}/models", timeout=5)
-                    print(f"DEBUG: attempt {attempt} res.ok={res.ok} status={res.status_code}")
                     if res.ok:
                         data = res.json()
                         return {"models": [m["id"] for m in data.get("data", []) if m.get("id")]}
                 except requests.exceptions.RequestException as e:
-                    print(f"DEBUG: attempt {attempt} failed: {e}")
                     if attempt < 4:
                         time.sleep(1)
                     else:
-                        frappe.log_error(f"Failed to connect to LMS after 5 retries: {e}")
+                        frappe.log_error(f"Failed to connect to LM Studio after 5 retries: {e}")
         elif provider_type == "ollama":
             base_url = (doc.ollama_base_url or "http://localhost:11434").rstrip("/")
             res = requests.get(f"{base_url}/api/tags", timeout=5)
