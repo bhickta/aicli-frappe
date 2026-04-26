@@ -12,7 +12,7 @@ const {
   // State
   jobs, selectedJobName, jobDetail, lastUpdated,
   markdownOutput, showMarkdown,
-  selectedFile, selectedModel, dpi, maxWorkers,
+  selectedFile, selectedModel, maxWorkers,
   availableModels, loadingModels, uploading,
   // Computed
   activeJobs, completedJobs, failedJobs,
@@ -63,13 +63,11 @@ async function handleDelete(jobName: string) {
       <OcrUploadForm
         :selected-file="selectedFile"
         :selected-model="selectedModel"
-        :dpi="dpi"
         :max-workers="maxWorkers"
         :available-models="availableModels"
         :loading-models="loadingModels"
         :uploading="uploading"
         @update:selected-model="selectedModel = $event"
-        @update:dpi="dpi = $event"
         @update:max-workers="maxWorkers = $event"
         @file-select="onFileSelect"
         @upload="handleUpload"

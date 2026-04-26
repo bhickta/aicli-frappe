@@ -1,11 +1,10 @@
 <script setup lang="ts">
 /**
- * OcrUploadForm — Upload form for starting new OCR jobs.
+ * OcrUploadForm — Upload form for starting new OCR jobs from ZIP files.
  */
 defineProps<{
   selectedFile: File | null
   selectedModel: string
-  dpi: number
   maxWorkers: number
   availableModels: string[]
   loadingModels: boolean
@@ -14,7 +13,6 @@ defineProps<{
 
 const emit = defineEmits<{
   'update:selectedModel': [value: string]
-  'update:dpi': [value: number]
   'update:maxWorkers': [value: number]
   'file-select': [event: Event]
   'upload': []
@@ -24,16 +22,16 @@ const emit = defineEmits<{
 
 <template>
   <div class="upload-section">
-    <h3>📄 PDF → Markdown OCR</h3>
-    <p class="subtitle">Upload a PDF and extract text using a local LLM vision model.</p>
+    <h3>📄 ZIP Images → Markdown OCR</h3>
+    <p class="subtitle">Upload a ZIP file containing images (JPG/PNG) and extract text using a local LLM vision model.</p>
 
     <div class="upload-form">
       <div class="form-group">
-        <label>PDF File</label>
+        <label>ZIP File</label>
         <input
           id="ocr-file-input"
           type="file"
-          accept=".pdf"
+          accept=".zip"
           @change="emit('file-select', $event)"
           class="file-input"
         />
@@ -60,17 +58,6 @@ const emit = defineEmits<{
             {{ loadingModels ? '⏳' : '🔄' }}
           </button>
         </div>
-      </div>
-
-      <div class="form-group">
-        <label>DPI (higher = better quality, slower)</label>
-        <input
-          type="number"
-          :value="dpi"
-          @input="emit('update:dpi', Number(($event.target as HTMLInputElement).value))"
-          min="72" max="600" step="50"
-          class="form-input"
-        />
       </div>
 
       <div class="form-group">

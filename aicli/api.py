@@ -142,15 +142,16 @@ def upload_pdfs():
 # ──────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def start_ocr(pdf_path, model_name=None, dpi=200, max_workers=3):
-    """Create and enqueue an OCR job."""
+def start_zip_ocr(zip_path, model_name=None, max_workers=3):
+    """Create and enqueue an OCR job from a ZIP file."""
     from aicli.domains.ocr.job_service import OcrJobService
     from aicli.domains.ocr.constants import DEFAULT_MODEL, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
     svc = OcrJobService()
     if not model_name:
         doc = frappe.get_single("AICLI Settings")
         model_name = doc.model_name or DEFAULT_MODEL
-    job_name = svc.create_job(pdf_path, model_name, int(dpi))
+    # We will compute total_pages upon extraction inside the job
+    job_name = svc.create_job(zip_path, model_name)
     frappe.enqueue(
         "aicli.domains.ocr.tasks.run_ocr_job",
         ocr_job_name=job_name, max_workers=int(max_workers),
@@ -209,34 +210,34 @@ def reset_ocr_job(job_name):
     return {"ok": True}
 
 @frappe.whitelist()
-def upload_pdf_for_ocr():
-    """Upload a PDF and immediately start OCR."""
+def upload_zip_for_ocr():
+    """Upload a ZIP file containing images and immediately start OCR."""
     from aicli.domains.ocr.job_service import OcrJobService
     from aicli.domains.ocr.file_manager import FileManager
-    from aicli.domains.ocr.constants import DEFAULT_MODEL, DEFAULT_DPI, DEFAULT_MAX_WORKERS, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
+    from aicli.domains.ocr.constants import DEFAULT_MODEL, DEFAULT_MAX_WORKERS, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
 
     if "file" not in frappe.request.files:
         frappe.throw("No file uploaded")
 
     f = frappe.request.files["file"]
     upload_dir = FileManager.get_uploads_dir()
-    file_path = os.path.join(upload_dir, f.filename)
-    f.save(file_path)
+    zip_path = os.path.join(upload_dir, f.filename)
+    f.save(zip_path)
 
     model_name = frappe.request.form.get("model_name")
-    dpi = int(frappe.request.form.get("dpi", DEFAULT_DPI))
     max_workers = int(frappe.request.form.get("max_workers", DEFAULT_MAX_WORKERS))
     if not model_name:
         doc = frappe.get_single("AICLI Settings")
         model_name = doc.model_name or DEFAULT_MODEL
 
     svc = OcrJobService()
-    job_name = svc.create_job(file_path, model_name, dpi)
+    # We don't know total_pages yet until we extract it, so pass 0 for now.
+    job_name = svc.create_job(zip_path, model_name)
 
     frappe.enqueue(
         "aicli.domains.ocr.tasks.run_ocr_job",
         ocr_job_name=job_name, max_workers=max_workers,
         queue=ENQUEUE_QUEUE, timeout=ENQUEUE_TIMEOUT, is_async=True,
     )
-    return {"job_name": job_name, "pdf_path": file_path, "status": "Queued"}
+    return {"job_name": job_name, "zip_path": zip_path, "status": "Queued"}
 

@@ -4,23 +4,22 @@
     "doctype": "DocType",
     "engine": "InnoDB",
     "field_order": [
-        "pdf_path",
+        "zip_path",
         "output_path",
         "model_name",
         "status",
         "total_pages",
         "completed_pages",
         "failed_pages",
-        "dpi",
         "started_at",
         "completed_at",
         "error"
     ],
     "fields": [
         {
-            "fieldname": "pdf_path",
+            "fieldname": "zip_path",
             "fieldtype": "Data",
-            "label": "PDF Path",
+            "label": "ZIP Path",
             "in_list_view": 1,
             "reqd": 1
         },
@@ -61,12 +60,6 @@
             "fieldtype": "Int",
             "label": "Failed Pages",
             "default": "0"
-        },
-        {
-            "fieldname": "dpi",
-            "fieldtype": "Int",
-            "label": "DPI",
-            "default": "200"
         },
         {
             "fieldname": "started_at",

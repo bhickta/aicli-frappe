@@ -13,7 +13,6 @@ import frappe
 
 from .constants import STATUS_RENDERING, STATUS_PROCESSING
 from .repository import OcrRepository
-from .renderer import PdfRenderer
 from .llm_caller import LlmCaller
 from .markdown_writer import MarkdownWriter
 from .model_manager import ModelManager
@@ -28,7 +27,6 @@ class OcrJobService:
 
     Composes:
       - OcrRepository  (persistence)
-      - PdfRenderer     (PDF → images)
       - LlmCaller       (image → markdown)
       - MarkdownWriter  (file I/O)
       - ModelManager     (LM Studio lifecycle)
@@ -43,20 +41,17 @@ class OcrJobService:
 
     # ─── Public API ───────────────────────────────────────────────
 
-    def create_job(self, pdf_path: str, model_name: str, dpi: int = 200) -> str:
-        """Create an OCR Job with all its page records. Returns the job name."""
-        abs_path = self._file_manager.validate_pdf(pdf_path)
-        output_path = self._file_manager.build_output_path(abs_path)
+    def create_job(self, zip_path: str, model_name: str) -> str:
+        """Create an OCR Job from a ZIP file. Returns the job name."""
+        if not os.path.exists(zip_path):
+            frappe.throw(f"ZIP file not found: {zip_path}")
 
-        renderer = PdfRenderer(abs_path, "", dpi)
-        total_pages = renderer.count_pages()
-        if total_pages == 0:
-            frappe.throw("PDF has zero pages.")
+        output_path = self._file_manager.build_output_path(zip_path).replace(".zip", "")
+        
+        # We don't know total_pages until extraction.
+        job_name = self._repo.create_job(zip_path, output_path, model_name, 0)
 
-        job_name = self._repo.create_job(abs_path, output_path, model_name, total_pages, dpi)
-        self._repo.create_pages(job_name, total_pages)
-
-        logger.info("Job %s created — %d pages from %s", job_name, total_pages, abs_path)
+        logger.info("Job %s created from %s", job_name, zip_path)
         return job_name
 
     def run_job(self, job_name: str, max_workers: int = 3) -> None:
@@ -75,14 +70,16 @@ class OcrJobService:
         images_dir = self._file_manager.get_images_dir(job.output_path)
         writer = MarkdownWriter(job.output_path)
 
-        # Get pending pages
+        # Phase 1: Extract Images
+        if job.total_pages == 0:
+            self._extract_phase(job, images_dir)
+            job = self._repo.get_job(job_name)
+
+        # Re-fetch pending after extraction
         pending = self._repo.get_pending_pages(job_name)
         if not pending:
             logger.info("No pending pages for job %s", job_name)
             return
-
-        # Phase 1: Fast Render
-        self._render_phase(job, pending, images_dir)
 
         # Phase 2: LLM Process
         caller = LlmCaller(provider, job.total_pages, model_manager, job.model_name)
@@ -135,21 +132,44 @@ class OcrJobService:
 
     # ─── Private: Two-Phase Processing ───────────────────────────
 
-    def _render_phase(self, job, pending: list[dict], images_dir: str) -> None:
-        """Phase 1: Render all pages to disk quickly and sequentially."""
-        page_names = [p["name"] for p in pending]
-        page_numbers = [p["page_number"] for p in pending]
+    def _extract_phase(self, job, images_dir: str) -> None:
+        """Phase 1: Extract all images from the uploaded ZIP file."""
+        import zipfile
+        import glob
         
-        self._repo.bulk_set_status(page_names, STATUS_RENDERING)
+        self._file_manager.ensure_dir(images_dir)
         
-        # Render all images sequentially (very fast, max memory = ~15MB)
-        renderer = PdfRenderer(job.pdf_path, images_dir, job.dpi)
-        results = renderer.render_pages(page_numbers, max_workers=1)
+        logger.info("Extracting %s to %s", job.zip_path, images_dir)
+        try:
+            with zipfile.ZipFile(job.zip_path, 'r') as zip_ref:
+                zip_ref.extractall(images_dir)
+        except Exception as e:
+            frappe.throw(f"Failed to extract ZIP: {e}")
+            
+        allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
+        extracted_images = []
+        for root, dirs, files in os.walk(images_dir):
+            for file in files:
+                if any(file.lower().endswith(ext) for ext in allowed_exts):
+                    extracted_images.append(os.path.join(root, file))
+                    
+        extracted_images.sort()
         
-        # Update DB once when done
-        for p_num, img_path in results.items():
-            self._repo.set_page_rendering_done(job.name, p_num, img_path)
+        total_pages = len(extracted_images)
+        if total_pages == 0:
+            frappe.throw("ZIP file contains no valid images.")
+            
+        job.total_pages = total_pages
+        job.save(ignore_permissions=True)
         frappe.db.commit()
+        
+        self._repo.create_pages(job.name, total_pages)
+        
+        for p_num, img_path in enumerate(extracted_images, start=1):
+            self._repo.set_page_rendering_done(job.name, p_num, img_path)
+            
+        frappe.db.commit()
+        logger.info("Extracted %d images from ZIP", total_pages)
 
     def _llm_phase(
         self, job_name: str, pending: list[dict],

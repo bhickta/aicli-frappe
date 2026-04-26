@@ -17,7 +17,6 @@ dependencies = [
     "sentence-transformers>=3.4.1",
     "faster-whisper>=1.0.0",
     "numpy>=1.26.0",
-    "pymupdf>=1.24.0",
     "pyyaml>=6.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.28.0",

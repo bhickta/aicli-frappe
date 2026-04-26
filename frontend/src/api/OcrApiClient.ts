@@ -8,11 +8,11 @@ import type {
 } from '../types/ocr.types'
 
 export class OcrApiClient {
-  async startOcr(
-    pdfPath: string, modelName?: string, dpi = 200, maxWorkers = 3,
+  async startZipOcr(
+    zipPath: string, modelName?: string, maxWorkers = 3,
   ): Promise<StartOcrResponse> {
-    return frappe.call('start_ocr', {
-      pdf_path: pdfPath, model_name: modelName, dpi, max_workers: maxWorkers,
+    return frappe.call('start_zip_ocr', {
+      zip_path: zipPath, model_name: modelName, max_workers: maxWorkers,
     })
   }
 
@@ -46,16 +46,15 @@ export class OcrApiClient {
   }
 
   async uploadAndOcr(
-    file: File, modelName?: string, dpi = 200, maxWorkers = 3,
+    file: File, modelName?: string, maxWorkers = 3,
   ): Promise<StartOcrResponse> {
     const formData = new FormData()
     formData.append('file', file)
     if (modelName) formData.append('model_name', modelName)
-    if (dpi) formData.append('dpi', String(dpi))
     if (maxWorkers) formData.append('max_workers', String(maxWorkers))
 
     const csrfToken = await frappe.getCsrfToken()
-    const res = await fetch(`${API_BASE}/api/method/aicli.api.upload_pdf_for_ocr`, {
+    const res = await fetch(`${API_BASE}/api/method/aicli.api.upload_zip_for_ocr`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',

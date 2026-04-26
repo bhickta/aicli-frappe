@@ -27,23 +27,21 @@ class OcrRepository:
 
     def create_job(
         self,
-        pdf_path: str,
+        zip_path: str,
         output_path: str,
         model_name: str,
         total_pages: int,
-        dpi: int,
     ) -> str:
         """Insert a new OCR Job record. Returns the job name."""
         job = frappe.get_doc({
             "doctype": "OCR Job",
-            "pdf_path": pdf_path,
+            "zip_path": zip_path,
             "output_path": output_path,
             "model_name": model_name,
             "status": JOB_QUEUED,
             "total_pages": total_pages,
             "completed_pages": 0,
             "failed_pages": 0,
-            "dpi": dpi,
         })
         job.insert(ignore_permissions=True)
         frappe.db.commit()
@@ -71,7 +69,7 @@ class OcrRepository:
         return frappe.get_all(
             "OCR Job",
             fields=[
-                "name", "pdf_path", "model_name", "status",
+                "name", "zip_path", "model_name", "status",
                 "total_pages", "completed_pages", "failed_pages",
                 "started_at", "completed_at",
             ],
@@ -245,7 +243,7 @@ class OcrRepository:
         rendered = self.count_rendered_pages(job_name)
         return OcrJobStatus(
             name=job.name,
-            pdf_path=job.pdf_path,
+            zip_path=job.zip_path,
             output_path=job.output_path,
             model_name=job.model_name,
             status=job.status,
@@ -253,7 +251,6 @@ class OcrRepository:
             completed_pages=job.completed_pages,
             failed_pages=job.failed_pages,
             rendered_pages=rendered,
-            dpi=job.dpi,
             started_at=str(job.started_at) if job.started_at else None,
             completed_at=str(job.completed_at) if job.completed_at else None,
             pages=pages,

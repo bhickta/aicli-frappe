@@ -26,7 +26,6 @@ export function useOcrStudio() {
   // Upload form
   const selectedFile = ref<File | null>(null)
   const selectedModel = ref('')
-  const dpi = ref(200)
   const maxWorkers = ref(24)
   const availableModels = ref<string[]>([])
   const loadingModels = ref(false)
@@ -89,7 +88,7 @@ export function useOcrStudio() {
     uploading.value = true
     try {
       const result = await ocrApi.uploadAndOcr(
-        selectedFile.value, selectedModel.value, dpi.value, maxWorkers.value
+        selectedFile.value, selectedModel.value, maxWorkers.value
       )
       selectedFile.value = null
       await loadJobs()
@@ -226,7 +225,7 @@ export function useOcrStudio() {
     // State
     jobs, selectedJobName, jobDetail, lastUpdated,
     markdownOutput, showMarkdown,
-    selectedFile, selectedModel, dpi, maxWorkers,
+    selectedFile, selectedModel, maxWorkers,
     availableModels, loadingModels, uploading,
     // Computed
     activeJobs, completedJobs, failedJobs,
