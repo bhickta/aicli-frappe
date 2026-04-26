@@ -1,41 +1,53 @@
+/**
+ * OCR API Client — Typed interface to the OCR backend endpoints.
+ */
 import { frappe } from './FrappeClient'
 import { API_BASE } from '../constants/api.constants'
+import type {
+  OcrJobSummary, OcrJobDetail, OcrOutputResponse, StartOcrResponse,
+} from '../types/ocr.types'
 
 export class OcrApiClient {
-  async startOcr(pdfPath: string, modelName?: string, dpi?: number, maxWorkers?: number): Promise<any> {
-    return frappe.call('start_ocr', { pdf_path: pdfPath, model_name: modelName, dpi: dpi || 200, max_workers: maxWorkers || 3 })
+  async startOcr(
+    pdfPath: string, modelName?: string, dpi = 200, maxWorkers = 3,
+  ): Promise<StartOcrResponse> {
+    return frappe.call('start_ocr', {
+      pdf_path: pdfPath, model_name: modelName, dpi, max_workers: maxWorkers,
+    })
   }
 
-  async getStatus(jobName: string): Promise<any> {
+  async getStatus(jobName: string): Promise<OcrJobDetail> {
     return frappe.call('ocr_status', { job_name: jobName })
   }
 
-  async getOutput(jobName: string): Promise<any> {
+  async getOutput(jobName: string): Promise<OcrOutputResponse> {
     return frappe.call('ocr_output', { job_name: jobName })
   }
 
-  async listJobs(): Promise<any[]> {
+  async listJobs(): Promise<OcrJobSummary[]> {
     const res = await frappe.call('ocr_jobs')
     return res || []
   }
 
-  async resumeJob(jobName: string, maxWorkers?: number): Promise<any> {
-    return frappe.call('resume_ocr', { job_name: jobName, max_workers: maxWorkers || 3 })
+  async resumeJob(jobName: string, maxWorkers = 3): Promise<StartOcrResponse> {
+    return frappe.call('resume_ocr', { job_name: jobName, max_workers: maxWorkers })
   }
 
-  async stopJob(jobName: string): Promise<any> {
+  async stopJob(jobName: string): Promise<{ status: string }> {
     return frappe.call('stop_ocr', { job_name: jobName })
   }
 
-  async deleteJob(jobName: string): Promise<any> {
+  async deleteJob(jobName: string): Promise<{ ok: boolean }> {
     return frappe.call('delete_ocr_job', { job_name: jobName })
   }
 
-  async resetJob(jobName: string): Promise<any> {
+  async resetJob(jobName: string): Promise<{ ok: boolean }> {
     return frappe.call('reset_ocr_job', { job_name: jobName })
   }
 
-  async uploadAndOcr(file: File, modelName?: string, dpi?: number, maxWorkers?: number): Promise<any> {
+  async uploadAndOcr(
+    file: File, modelName?: string, dpi = 200, maxWorkers = 3,
+  ): Promise<StartOcrResponse> {
     const formData = new FormData()
     formData.append('file', file)
     if (modelName) formData.append('model_name', modelName)
