@@ -132,6 +132,18 @@ async function resumeJob(jobName: string) {
   }
 }
 
+async function stopJob(jobName: string) {
+  try {
+    await ocrApi.stopJob(jobName)
+    await loadJobs()
+    if (selectedJob.value === jobName) {
+      jobDetail.value = await ocrApi.getStatus(jobName)
+    }
+  } catch (e: any) {
+    alert('Stop failed: ' + e.message)
+  }
+}
+
 async function deleteJob(jobName: string) {
   if (!confirm('Delete this OCR job permanently?')) return
   try {
