@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 
 from aicli.core.interfaces import ImageVisionProvider
 from aicli.config import config as app_config

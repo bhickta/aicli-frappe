@@ -97,8 +97,10 @@ class PdfRenderer:
         """
         Render requested pages to images.
 
-        Uses sequential rendering by default (safest for memory).
-        Set max_workers > 1 to enable parallel mode (each page in its own subprocess).
+        Defaults to parallel rendering with per-page process isolation.
+        Each subprocess opens the PDF, renders ONE page, frees it, and exits.
+        Peak memory = max_workers × (~15 MB pixmap + mmap'd PDF).
+        Falls back to sequential if max_workers=1.
         """
         if not page_numbers:
             return {}
@@ -121,9 +123,10 @@ class PdfRenderer:
         if not to_render:
             return cached
 
-        effective_workers = max_workers if max_workers and max_workers > 1 else 1
+        from multiprocessing import cpu_count
+        effective_workers = max_workers if max_workers and max_workers >= 1 else (cpu_count() or 4)
 
-        if effective_workers > 1:
+        if effective_workers > 1 and len(to_render) > 1:
             results = self._render_parallel(to_render, effective_workers)
         else:
             results = self._render_sequential(to_render)
@@ -178,42 +181,40 @@ class PdfRenderer:
         return results
 
     def _render_parallel(self, page_numbers: list[int], max_workers: int) -> dict[int, str]:
-        """Render pages in parallel subprocesses — one page per task for memory isolation."""
+        """Render pages in parallel subprocesses — one page per task for memory isolation.
+
+        Each task calls _render_single_page which:
+          1. Opens the PDF (mmap'd, lightweight)
+          2. Renders exactly ONE page to a pixmap
+          3. Saves to disk, del pix, closes PDF
+          4. Returns — subprocess memory fully reclaimed
+
+        Peak memory = max_workers × (~15 MB pixmap + mmap'd PDF handle).
+        """
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
-        # Cap workers to a safe number
-        workers = min(max_workers, len(page_numbers), 4)  # Hard cap at 4 workers
+        workers = min(max_workers, len(page_numbers))
 
         logger.info(
-            "Rendering %d pages across %d processes (dpi=%d, pdf=%s)",
+            "Rendering %d pages across %d workers (dpi=%d, pdf=%s)",
             len(page_numbers), workers, self._dpi, os.path.basename(self._pdf_path),
         )
 
         results: dict[int, str] = {}
-        # Process in small batches to avoid submitting too many futures at once
-        batch_size = workers * 2  # Keep a small buffer of pending tasks
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _render_single_page, self._pdf_path, self._images_dir, self._dpi, p_num
+                ): p_num
+                for p_num in page_numbers
+            }
+            for future in as_completed(futures):
+                try:
+                    p_num, img_path = future.result()
+                    results[p_num] = img_path
+                except Exception as e:
+                    p_num = futures[future]
+                    logger.error("Failed to render page %d: %s", p_num, e)
 
-        for batch_start in range(0, len(page_numbers), batch_size):
-            batch = page_numbers[batch_start:batch_start + batch_size]
-
-            with ProcessPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(
-                        _render_single_page, self._pdf_path, self._images_dir, self._dpi, p_num
-                    ): p_num
-                    for p_num in batch
-                }
-                for future in as_completed(futures):
-                    try:
-                        p_num, img_path = future.result()
-                        results[p_num] = img_path
-                    except Exception as e:
-                        p_num = futures[future]
-                        logger.error("Failed to render page %d: %s", p_num, e)
-
-            logger.info(
-                "Rendered batch %d–%d of %d pages",
-                batch_start + 1, min(batch_start + batch_size, len(page_numbers)), len(page_numbers),
-            )
-
+        logger.info("Parallel rendering complete: %d pages", len(results))
         return results

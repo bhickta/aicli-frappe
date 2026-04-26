@@ -81,10 +81,10 @@ class OcrJobService:
             logger.info("No pending pages for job %s", job_name)
             return
 
-        # Phase 1: Render all pages
-        self._render_phase(job, pending, images_dir, max_workers)
+        # Phase 1: Fast Render
+        self._render_phase(job, pending, images_dir)
 
-        # Phase 2: LLM processing in batches
+        # Phase 2: LLM Process
         caller = LlmCaller(provider, job.total_pages, model_manager, job.model_name)
         self._llm_phase(job_name, pending, caller, writer, max_workers)
 
@@ -133,46 +133,40 @@ class OcrJobService:
         """Pause a running job (worker will see the status change and exit)."""
         self._repo.mark_job_paused(job_name)
 
-    # ─── Private: Render Phase ────────────────────────────────────
+    # ─── Private: Two-Phase Processing ───────────────────────────
 
-    def _render_phase(self, job, pending: list[dict], images_dir: str, max_workers: int) -> None:
-        """Render all pending pages to images.
-
-        Uses sequential rendering (max_workers=1) to keep memory usage minimal.
-        PDF rendering is I/O-bound and fast; the LLM phase is the real bottleneck.
-        """
+    def _render_phase(self, job, pending: list[dict], images_dir: str) -> None:
+        """Phase 1: Render all pages to disk quickly and sequentially."""
         page_names = [p["name"] for p in pending]
-        self._repo.bulk_set_status(page_names, STATUS_RENDERING)
-
         page_numbers = [p["page_number"] for p in pending]
+        
+        self._repo.bulk_set_status(page_names, STATUS_RENDERING)
+        
+        # Render all images sequentially (very fast, max memory = ~15MB)
         renderer = PdfRenderer(job.pdf_path, images_dir, job.dpi)
-        # Force sequential rendering to avoid memory multiplication from parallel subprocess PDF loads
         results = renderer.render_pages(page_numbers, max_workers=1)
-
+        
+        # Update DB once when done
         for p_num, img_path in results.items():
             self._repo.set_page_rendering_done(job.name, p_num, img_path)
         frappe.db.commit()
-        logger.info("Render phase complete: %d/%d pages", len(results), len(pending))
-
-    # ─── Private: LLM Phase ──────────────────────────────────────
 
     def _llm_phase(
         self, job_name: str, pending: list[dict],
         caller: LlmCaller, writer: MarkdownWriter, max_workers: int,
     ) -> None:
-        """Process pages through LLM in batches with stop-check between batches."""
+        """Phase 2: Process the rendered images through the LLM."""
         job = self._repo.get_job(job_name)
 
-        for i in range(0, len(pending), max_workers):
-            # Check for user-initiated stop
+        # Process in chunks just to periodically update the UI counters and check for stop
+        chunk_size = max_workers
+        for i in range(0, len(pending), chunk_size):
             if not self._repo.is_job_active(job_name):
-                logger.info("Job %s stopped by user, exiting", job_name)
+                logger.info("Job %s stopped by user", job_name)
                 break
 
-            batch = pending[i:i + max_workers]
-            self._process_batch(job_name, batch, caller, writer, max_workers, job.total_pages)
-
-            # Update counters after each batch
+            chunk = pending[i:i + chunk_size]
+            self._process_batch(job_name, chunk, caller, writer, max_workers, job.total_pages)
             self._repo.update_job_counters(job_name)
 
     def _process_batch(
