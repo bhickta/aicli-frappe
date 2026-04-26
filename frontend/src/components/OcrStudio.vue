@@ -12,24 +12,23 @@ const {
   // State
   jobs, selectedJobName, jobDetail, lastUpdated,
   markdownOutput, showMarkdown,
-  selectedFile, selectedModel, maxWorkers,
+  selectedModel, maxWorkers,
   availableModels, loadingModels, uploading,
   // Computed
   activeJobs, completedJobs, failedJobs,
   // Methods
-  refreshModels, selectJob, uploadAndStart,
+  refreshModels, selectJob,
   resumeJob, stopJob, resetJob, deleteJob,
-  viewOutput, closeMarkdown, onFileSelect, downloadMarkdown,
+  viewOutput, closeMarkdown, downloadMarkdown,
   statusColor, pdfBasename, progressPercent,
+  openNativeUploader,
 } = useOcrStudio()
 
-async function handleUpload() {
+async function handleNativeUpload() {
   try {
-    await uploadAndStart()
-    const input = document.getElementById('ocr-file-input') as HTMLInputElement
-    if (input) input.value = ''
+    await openNativeUploader()
   } catch (e: any) {
-    alert(e.message)
+    if (e.message) alert(e.message)
   }
 }
 
@@ -61,7 +60,6 @@ async function handleDelete(jobName: string) {
     <!-- Sidebar -->
     <aside class="ocr-sidebar">
       <OcrUploadForm
-        :selected-file="selectedFile"
         :selected-model="selectedModel"
         :max-workers="maxWorkers"
         :available-models="availableModels"
@@ -69,8 +67,7 @@ async function handleDelete(jobName: string) {
         :uploading="uploading"
         @update:selected-model="selectedModel = $event"
         @update:max-workers="maxWorkers = $event"
-        @file-select="onFileSelect"
-        @upload="handleUpload"
+        @native-upload="handleNativeUpload"
         @refresh-models="refreshModels"
       />
       <OcrJobList
@@ -107,7 +104,7 @@ async function handleDelete(jobName: string) {
 
       <div v-else class="ocr-empty-state">
         <div class="icon">🔍</div>
-        <p>Select a job from the sidebar, or upload a new PDF to start OCR.</p>
+        <p>Select a job from the sidebar, or upload a new ZIP of images to start OCR.</p>
       </div>
     </main>
   </div>

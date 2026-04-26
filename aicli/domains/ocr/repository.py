@@ -48,17 +48,18 @@ class OcrRepository:
         logger.info("Created OCR Job %s — %d pages", job.name, total_pages)
         return job.name
 
-    def create_pages(self, job_name: str, total_pages: int) -> None:
-        """Insert one OCR Page record per page."""
-        for pg in range(1, total_pages + 1):
+    def create_pages(self, job_name: str, pages_data: list[dict]) -> None:
+        """Insert OCR Page records with predefined data."""
+        for data in pages_data:
             frappe.get_doc({
                 "doctype": "OCR Page",
                 "ocr_job": job_name,
-                "page_number": pg,
+                "page_number": data["page_number"],
+                "image_path": data["image_path"],
                 "status": STATUS_PENDING,
             }).insert(ignore_permissions=True)
         frappe.db.commit()
-        logger.info("Created %d OCR Page records for job %s", total_pages, job_name)
+        logger.info("Created %d OCR Page records for job %s", len(pages_data), job_name)
 
     def get_job(self, job_name: str):
         """Fetch a live OCR Job document."""

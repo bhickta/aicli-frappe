@@ -41,23 +41,36 @@ class OcrJobService:
 
     # ─── Public API ───────────────────────────────────────────────
 
-    def create_job(self, zip_path: str, model_name: str) -> str:
-        """Create an OCR Job from a ZIP file. Returns the job name."""
-        logger.info("Service: Creating job for zip_path=%s", zip_path)
-        # Ensure we have an absolute, valid path
-        zip_path = self._file_manager.validate_zip(zip_path)
-        logger.info("Service: Validated zip_path=%s", zip_path)
-
-        output_path = self._file_manager.build_output_path(zip_path).replace(".zip", "")
+    def create_job_from_files(self, file_docs: list, model_name: str) -> str:
+        """Create an OCR Job from a list of Frappe File documents."""
+        from aicli.domains.ocr.file_manager import FileManager
         
-        # We don't know total_pages until extraction.
-        job_name = self._repo.create_job(zip_path, output_path, model_name, 0)
-
-        logger.info("Job %s created from %s", job_name, zip_path)
+        # Use the first file's folder as a reference for output
+        first_file = file_docs[0] if file_docs else None
+        zip_path = "Native Unzip"
+        output_path = first_file.folder if first_file else "ocr_results"
+        
+        job_name = self._repo.create_job(zip_path, output_path, model_name, len(file_docs))
+        
+        # Immediately create pages from the File docs
+        pages_data = []
+        for i, fdoc in enumerate(file_docs):
+            # Resolve URL to absolute path for the LLM worker
+            abs_path = FileManager.get_full_path_from_url(fdoc.file_url)
+            
+            pages_data.append({
+                "page_number": i + 1,
+                "image_path": abs_path
+            })
+            
+        # Bulk create pages
+        self._repo.create_pages(job_name, pages_data)
+        
+        logger.info("Job %s created from %d files", job_name, len(file_docs))
         return job_name
 
     def run_job(self, job_name: str, max_workers: int = 3) -> None:
-        """Process all pending pages: render → LLM → save. Resumable."""
+        """Process all pending pages: LLM → save. Resumable."""
         job = self._repo.get_job(job_name)
         if job.status == "Completed":
             logger.info("Job %s already completed", job_name)
@@ -69,18 +82,14 @@ class OcrJobService:
         # Set up infrastructure
         model_manager = self._setup_model_manager(job.model_name)
         provider = self._provider_factory.create(job.model_name)
-        images_dir = self._file_manager.get_images_dir(job.output_path)
+        # Note: images_dir is not used if we use absolute paths from File records
         writer = MarkdownWriter(job.output_path)
 
-        # Phase 1: Extract Images
-        if job.total_pages == 0:
-            self._extract_phase(job, images_dir)
-            job = self._repo.get_job(job_name)
-
-        # Re-fetch pending after extraction
+        # Phase 1: Re-fetch pending (pages were already created during create_job_from_files)
         pending = self._repo.get_pending_pages(job_name)
         if not pending:
             logger.info("No pending pages for job %s", job_name)
+            self._repo.finalize_job(job_name)
             return
 
         # Phase 2: LLM Process

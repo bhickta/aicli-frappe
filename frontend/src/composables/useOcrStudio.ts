@@ -24,7 +24,6 @@ export function useOcrStudio() {
   const showMarkdown = ref(false)
 
   // Upload form
-  const selectedFile = ref<File | null>(null)
   const selectedModel = ref('')
   const maxWorkers = ref(24)
   const availableModels = ref<string[]>([])
@@ -83,24 +82,39 @@ export function useOcrStudio() {
     }
   }
 
-  async function uploadAndStart(): Promise<string | null> {
-    if (!selectedFile.value) return null
-    uploading.value = true
-    try {
-      const result = await ocrApi.uploadAndOcr(
-        selectedFile.value, selectedModel.value, maxWorkers.value
-      )
-      selectedFile.value = null
-      await loadJobs()
-      if (result?.job_name) {
-        await selectJob(result.job_name)
+  async function openNativeUploader(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // @ts-ignore
+      if (!window.frappe) {
+        reject(new Error('Frappe context not found. Please ensure you are running inside Frappe Desk.'))
+        return
       }
-      return result?.job_name || null
-    } catch (e: any) {
-      throw new Error('Upload failed: ' + e.message)
-    } finally {
-      uploading.value = false
-    }
+
+      // @ts-ignore
+      const d = new window.frappe.ui.FileUploader({
+        make_attachments: 0,
+        on_success: async (fileDoc: any) => {
+          if (fileDoc.file_url) {
+            uploading.value = true
+            try {
+              const result = await ocrApi.startZipOcr(
+                fileDoc.file_url, selectedModel.value, maxWorkers.value
+              )
+              await loadJobs()
+              if (result?.job_name) {
+                await selectJob(result.job_name)
+              }
+              resolve()
+            } catch (e: any) {
+              console.error('OCR Start failed:', e)
+              reject(e)
+            } finally {
+              uploading.value = false
+            }
+          }
+        }
+      })
+    })
   }
 
   async function resumeJob(jobName: string, workers: number): Promise<void> {
@@ -154,14 +168,6 @@ export function useOcrStudio() {
 
   function closeMarkdown(): void {
     showMarkdown.value = false
-  }
-
-  // ─── Utilities ───────────────────────────────────────────────
-  function onFileSelect(event: Event): void {
-    const input = event.target as HTMLInputElement
-    if (input.files && input.files.length > 0) {
-      selectedFile.value = input.files[0]
-    }
   }
 
   function downloadMarkdown(): void {
@@ -225,14 +231,14 @@ export function useOcrStudio() {
     // State
     jobs, selectedJobName, jobDetail, lastUpdated,
     markdownOutput, showMarkdown,
-    selectedFile, selectedModel, maxWorkers,
+    selectedModel, maxWorkers,
     availableModels, loadingModels, uploading,
     // Computed
     activeJobs, completedJobs, failedJobs,
     // Methods
-    loadJobs, refreshModels, selectJob, uploadAndStart,
+    loadJobs, refreshModels, selectJob, openNativeUploader,
     resumeJob, stopJob, resetJob, deleteJob,
-    viewOutput, closeMarkdown, onFileSelect, downloadMarkdown,
+    viewOutput, closeMarkdown, downloadMarkdown,
     statusColor, pdfBasename, progressPercent,
   }
 }

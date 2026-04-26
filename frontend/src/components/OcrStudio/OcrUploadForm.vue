@@ -3,7 +3,6 @@
  * OcrUploadForm — Upload form for starting new OCR jobs from ZIP files.
  */
 defineProps<{
-  selectedFile: File | null
   selectedModel: string
   maxWorkers: number
   availableModels: string[]
@@ -14,8 +13,7 @@ defineProps<{
 const emit = defineEmits<{
   'update:selectedModel': [value: string]
   'update:maxWorkers': [value: number]
-  'file-select': [event: Event]
-  'upload': []
+  'native-upload': []
   'refresh-models': []
 }>()
 </script>
@@ -28,13 +26,13 @@ const emit = defineEmits<{
     <div class="upload-form">
       <div class="form-group">
         <label>ZIP File</label>
-        <input
-          id="ocr-file-input"
-          type="file"
-          accept=".zip"
-          @change="emit('file-select', $event)"
-          class="file-input"
-        />
+        <button
+          class="btn btn-secondary native-upload-btn"
+          @click="emit('native-upload')"
+          :disabled="uploading"
+        >
+          {{ uploading ? '⏳ Processing…' : '📁 Choose ZIP (Native Upload)' }}
+        </button>
       </div>
 
       <div class="form-group">
@@ -71,13 +69,9 @@ const emit = defineEmits<{
         />
       </div>
 
-      <button
-        class="btn btn-primary upload-btn"
-        @click="emit('upload')"
-        :disabled="!selectedFile || uploading"
-      >
-        {{ uploading ? '⏳ Uploading…' : '🚀 Upload & Start OCR' }}
-      </button>
+      <div class="info-note" v-if="!uploading">
+        💡 Use Frappe's native uploader for better handling of large files (>500MB).
+      </div>
     </div>
   </div>
 </template>
