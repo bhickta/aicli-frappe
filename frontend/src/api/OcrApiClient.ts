@@ -31,6 +31,10 @@ export class OcrApiClient {
     return frappe.call('delete_ocr_job', { job_name: jobName })
   }
 
+  async resetJob(jobName: string): Promise<any> {
+    return frappe.call('reset_ocr_job', { job_name: jobName })
+  }
+
   async uploadAndOcr(file: File, modelName?: string, dpi?: number, maxWorkers?: number): Promise<any> {
     const formData = new FormData()
     formData.append('file', file)

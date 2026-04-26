@@ -342,6 +342,29 @@ class OcrService:
             frappe.delete_doc("OCR Job", job_name, ignore_permissions=True, ignore_missing=True)
             frappe.db.commit()
 
+    def reset_job(self, job_name: str) -> None:
+        """Wipe all OCR progress and results but keep rendered images."""
+        job = frappe.get_doc("OCR Job", job_name)
+        
+        # 1) Clear physical output file
+        if job.output_path and os.path.exists(job.output_path):
+            os.remove(job.output_path)
+            
+        # 2) Reset page records in DB
+        frappe.db.sql("""
+            UPDATE `tabOCR Page`
+            SET status = 'Pending', markdown_output = NULL, error = NULL, processing_time = 0
+            WHERE ocr_job = %s
+        """, job_name)
+        
+        # 3) Reset job counters
+        job.status = "Queued"
+        job.completed_pages = 0
+        job.failed_pages = 0
+        job.save(ignore_permissions=True)
+        frappe.db.commit()
+        logger.info("Reset OCR Job: %s", job_name)
+
     # ── Private Helpers ───────────────────────────────────────────
 
     def _get_provider(self, model_name: str):

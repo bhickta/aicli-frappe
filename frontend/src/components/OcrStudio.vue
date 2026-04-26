@@ -150,6 +150,19 @@ async function stopJob(jobName: string) {
   }
 }
 
+async function resetJob(jobName: string) {
+  if (!confirm('Wipe all OCR results and start fresh? (Images will be kept)')) return
+  try {
+    await ocrApi.resetJob(jobName)
+    await loadJobs()
+    if (selectedJob.value === jobName) {
+      jobDetail.value = await ocrApi.getStatus(jobName)
+    }
+  } catch (e: any) {
+    alert('Reset failed: ' + e.message)
+  }
+}
+
 async function deleteJob(jobName: string) {
   if (!confirm('Delete this OCR job permanently?')) return
   try {
@@ -374,6 +387,14 @@ onUnmounted(() => {
               @click="viewOutput"
             >
               📖 View Markdown
+            </button>
+            <button
+              v-if="['Paused', 'Failed', 'Completed'].includes(jobDetail.status)"
+              class="btn btn-ghost"
+              @click="resetJob(jobDetail.name)"
+              title="Wipe OCR progress and start fresh"
+            >
+              🔄 Reset
             </button>
             <button class="btn btn-ghost btn-danger" @click="deleteJob(jobDetail.name)">
               🗑️ Delete

@@ -216,6 +216,13 @@ def delete_ocr_job(job_name):
     return {"ok": True}
 
 @frappe.whitelist()
+def reset_ocr_job(job_name):
+    """Wipe all OCR progress and results but keep rendered images."""
+    from aicli.domains.ocr.service import OcrService
+    OcrService().reset_job(job_name)
+    return {"ok": True}
+
+@frappe.whitelist()
 def upload_pdf_for_ocr():
     """Upload a PDF and immediately start OCR on it."""
     from aicli.domains.ocr.service import OcrService
