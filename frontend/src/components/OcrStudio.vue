@@ -379,22 +379,34 @@ onUnmounted(() => {
         </div>
 
         <!-- Page Grid -->
-        <div v-else class="pages-grid">
-          <div
-            v-for="page in jobDetail.pages"
-            :key="page.page_number"
-            class="page-card"
-            :class="page.status.toLowerCase()"
-          >
-            <div class="page-num">{{ page.page_number }}</div>
-            <div class="page-status">
-              <span class="status-dot-sm" :style="{ background: statusColor(page.status) }"></span>
-              {{ page.status }}
+        <div v-else>
+          <div class="pages-grid">
+            <div
+              v-for="page in jobDetail.pages"
+              :key="page.page_number"
+              class="page-card"
+              :class="page.status.toLowerCase()"
+            >
+              <div class="page-num">{{ page.page_number }}</div>
+              <div class="page-status">
+                <span class="status-dot-sm" :style="{ background: statusColor(page.status) }"></span>
+                {{ page.status }}
+              </div>
+              <div v-if="page.processing_time" class="page-time">
+                {{ page.processing_time.toFixed(1) }}s
+              </div>
+              <div v-if="page.error" class="page-error" :title="page.error">⚠</div>
             </div>
-            <div v-if="page.processing_time" class="page-time">
-              {{ page.processing_time.toFixed(1) }}s
-            </div>
-            <div v-if="page.error" class="page-error" :title="page.error">⚠</div>
+          </div>
+          
+          <!-- Detailed Error Logs -->
+          <div v-if="jobDetail.failed_pages > 0" class="job-errors-section" style="margin-top: 24px; padding: 16px; background: rgba(239, 68, 68, 0.05); border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.3);">
+            <h4 style="margin: 0 0 12px; color: var(--danger); font-size: 14px; font-weight: 600;">⚠ Failed Page Logs</h4>
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 8px;">
+              <li v-for="page in jobDetail.pages.filter(p => p.status === 'Failed' && p.error)" :key="page.page_number">
+                <strong style="color: var(--text-primary);">Page {{ page.page_number }}:</strong> <span style="font-family: monospace;">{{ page.error }}</span>
+              </li>
+            </ul>
           </div>
         </div>
       </template>

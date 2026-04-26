@@ -189,15 +189,27 @@ class OcrService:
                         return p_num, markdown, time.perf_counter() - start_t
                     except Exception as e:
                         last_err = e
+                        error_str = str(e)
+                        if hasattr(e, "response") and hasattr(e.response, "text"):
+                            error_str += f" | {e.response.text}"
+                            
                         if attempt < max_attempts - 1:
-                            # Exponential backoff with jitter
-                            sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
-                            logger.warning("OCR page %d LLM call failed (%s), retrying in %.1fs...", p_num, str(e), sleep_time)
+                            if "model has crashed" in error_str.lower():
+                                logger.error("Model crashed! Attempting to revive %s...", job.model_name)
+                                import subprocess
+                                subprocess.run(["lms", "unload", "--all"], capture_output=True)
+                                time.sleep(1)
+                                subprocess.run(["lms", "load", job.model_name], capture_output=True)
+                                sleep_time = 5.0 # wait longer after a crash recovery
+                            else:
+                                sleep_time = (2 ** attempt) + random.uniform(0.5, 2.0)
+                                
+                            logger.warning("OCR page %d LLM call failed (%s), retrying in %.1fs...", p_num, error_str, sleep_time)
                             time.sleep(sleep_time)
                         else:
-                            logger.error("OCR page %d failed after %d attempts: %s", p_num, max_attempts, str(e))
-                
-                raise last_err
+                            logger.error("OCR page %d failed after %d attempts: %s", p_num, max_attempts, error_str)
+                            # Wrap the original exception with the enhanced string
+                            raise Exception(error_str) from last_err
 
             futures = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
