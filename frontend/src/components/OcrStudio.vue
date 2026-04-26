@@ -184,6 +184,7 @@ function statusColor(status: string) {
     Failed: 'var(--danger)',
     Paused: 'var(--warning, #f59e0b)',
     Processing: 'var(--accent)',
+    Rendering: 'var(--warning, #f59e0b)',
     Pending: 'var(--text-muted)',
   }
   return map[status] || 'var(--text-muted)'
@@ -751,6 +752,7 @@ onUnmounted(() => {
 }
 .page-card.completed { border-color: var(--success); background: rgba(16,185,129,0.06); }
 .page-card.processing { border-color: var(--accent); background: rgba(99,102,241,0.08); animation: pulse-border 1.5s infinite; }
+.page-card.rendering { border-color: var(--warning, #f59e0b); background: rgba(245,158,11,0.08); animation: pulse-border 2s infinite; }
 .page-card.failed { border-color: var(--danger); background: rgba(239,68,68,0.06); }
 
 @keyframes pulse-border {

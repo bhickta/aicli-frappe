@@ -137,13 +137,13 @@ class OcrService:
         frappe.db.commit()
 
         doc = frappe.get_single("AICLI Settings")
+        api_root = None
         if doc.provider_type in ["lms", "lmstudio"]:
             base_url = (doc.get("lms_base_url") or doc.get("lm_studio_base_url") or "http://localhost:1234/v1").rstrip("/")
-            # Strip /v1 to get the root URL for the management API
             api_root = base_url.replace("/v1", "")
             self._ensure_model_loaded(api_root, base_url, job.model_name)
+        
         provider = self._get_provider(job.model_name)
-        pdf_doc = fitz.open(job.pdf_path)
         images_dir = os.path.join(os.path.dirname(job.output_path), "images")
         os.makedirs(images_dir, exist_ok=True)
 
@@ -165,6 +165,12 @@ class OcrService:
         
         logger.info("Bulk rendering %d pages for job %s...", len(pending_pages), job_name)
         
+        # Mark all as 'Rendering' initially
+        page_names = [p["name"] for p in pending_pages]
+        if page_names:
+            frappe.db.sql("UPDATE `tabOCR Page` SET status = 'Rendering' WHERE name IN %s", (tuple(page_names),))
+            frappe.db.commit()
+
         # Split into chunks for multi-processing
         all_p_nums = [p["page_number"] for p in pending_pages]
         num_workers = min(os.cpu_count() or 4, len(all_p_nums))
@@ -172,25 +178,24 @@ class OcrService:
         chunks = [all_p_nums[x:x+chunk_size] for x in range(0, len(all_p_nums), chunk_size)]
 
         render_results = {}
-        # Use ProcessPoolExecutor for heavy CPU tasks like rendering
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            # We need a top-level function or a static method for ProcessPool
-            # I'll use a helper that opens the PDF once per PROCESS
             import functools
             func = functools.partial(render_pdf_pages_static, job.pdf_path, images_dir, job.dpi)
-            chunk_results = list(executor.map(func, chunks))
-            for res in chunk_results:
+            
+            # Use as_completed to update DB in real-time as chunks finish
+            futures = {executor.submit(func, chunk): chunk for chunk in chunks}
+            for future in concurrent.futures.as_completed(futures):
+                res = future.result()
                 render_results.update(res)
-
-        # 2) Bulk Update Database (One Query instead of 600)
-        logger.info("Updating database paths for %s...", job_name)
-        for p_num, i_path in render_results.items():
-            frappe.db.sql("""
-                UPDATE `tabOCR Page` 
-                SET image_path = %s 
-                WHERE ocr_job = %s AND page_number = %s
-            """, (i_path, job_name, p_num))
-        frappe.db.commit()
+                # Update this chunk to 'Pending' (meaning ready for OCR) and save paths
+                for p_num, i_path in res.items():
+                    frappe.db.sql("""
+                        UPDATE `tabOCR Page` 
+                        SET image_path = %s, status = 'Pending'
+                        WHERE ocr_job = %s AND page_number = %s
+                    """, (i_path, job_name, p_num))
+                frappe.db.commit()
+                logger.info("Chunk of %d pages rendered for %s", len(res), job_name)
 
         # 2) Process LLM calls in batches
         for i in range(0, len(pending_pages), max_workers):
@@ -207,43 +212,18 @@ class OcrService:
                 frappe.db.set_value("OCR Page", page_rec["name"], "status", "Processing", update_modified=False)
             frappe.db.commit()
 
-            def call_llm(p_name, p_num):
-                page_doc = frappe.get_doc("OCR Page", p_name)
-                if not page_doc.image_path:
-                    raise Exception("Image not rendered")
-
-                prompt = OCR_PAGE_PROMPT_TEMPLATE.format(page_number=p_num, total_pages=job.total_pages)
-                start_t = time.perf_counter()
-
-                max_attempts = 5
-                for attempt in range(max_attempts):
-                    try:
-                        markdown = provider.describe_image(
-                            image_path=page_doc.image_path,
-                            prompt=prompt,
-                            system_prompt=OCR_SYSTEM_PROMPT,
-                            max_size=1536,
-                            temperature=0.0,
-                            max_tokens=1500,
-                            max_retries=1,
-                        )
-                        return p_num, markdown, time.perf_counter() - start_t
-                    except Exception as e:
-                        error_str = str(e)
-                        if hasattr(e, "response") and hasattr(e.response, "text"):
-                            error_str += f" | {e.response.text}"
-
-                        if "model has crashed" in error_str.lower() or "channel error" in error_str.lower():
-                            if attempt < max_attempts - 1:
-                                self._unload_model_via_api(api_root, job.model_name)
-                                time.sleep(2)
-                                self._load_model_via_api(api_root, job.model_name)
-                                time.sleep(5)
-                                continue
-                        
-                        if attempt < max_attempts - 1:
-                            time.sleep((2 ** attempt) + random.uniform(0.5, 1.0))
-                        else:
+            import concurrent.futures
+            futures = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for page_rec in batch:
+                    futures[executor.submit(
+                        self._call_llm_worker, 
+                        page_rec["name"], 
+                        page_rec["page_number"], 
+                        job, 
+                        provider, 
+                        api_root
+                    )] = page_rec["name"]
                             raise Exception(error_str)
 
             futures = {}
@@ -261,6 +241,8 @@ class OcrService:
                     page_doc.processing_time = round(elapsed, 2)
                     page_doc.status = "Completed"
                     logger.info("OCR page %d/%d done in %.1fs — job %s", p_num, job.total_pages, elapsed, job_name)
+                    # Append result to file immediately (O(n) writes)
+                    self._append_page_markdown(job.output_path, p_num, markdown)
                 except Exception as e:
                     logger.error("OCR page %s failed: %s", page_doc.page_number, e)
                     page_doc.status = "Failed"
@@ -274,10 +256,6 @@ class OcrService:
             job.failed_pages = frappe.db.count("OCR Page", {"ocr_job": job_name, "status": "Failed"})
             job.save(ignore_permissions=True)
             frappe.db.commit()
-
-            self._write_markdown(job_name, job.output_path)
-
-        pdf_doc.close()
 
         # Final status
         job.reload()
@@ -452,6 +430,51 @@ class OcrService:
         img_path = os.path.join(images_dir, f"page_{page_num:04d}.png")
         pix.save(img_path)
         return img_path
+
+    def _call_llm_worker(self, p_name, p_num, job, provider, api_root):
+        page_doc = frappe.get_doc("OCR Page", p_name)
+        if not page_doc.image_path:
+            raise Exception("Image not rendered")
+
+        prompt = OCR_PAGE_PROMPT_TEMPLATE.format(page_number=p_num, total_pages=job.total_pages)
+        start_t = time.perf_counter()
+
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                markdown = provider.describe_image(
+                    image_path=page_doc.image_path,
+                    prompt=prompt,
+                    system_prompt=OCR_SYSTEM_PROMPT,
+                    max_size=1536,
+                    temperature=0.0,
+                    max_tokens=1500,
+                    max_retries=1,
+                )
+                return p_num, markdown, time.perf_counter() - start_t
+            except Exception as e:
+                error_str = str(e)
+                if hasattr(e, "response") and hasattr(e.response, "text"):
+                    error_str += f" | {e.response.text}"
+
+                if api_root and ("model has crashed" in error_str.lower() or "channel error" in error_str.lower()):
+                    if attempt < max_attempts - 1:
+                        self._unload_model_via_api(api_root, job.model_name)
+                        time.sleep(2)
+                        self._load_model_via_api(api_root, job.model_name)
+                        time.sleep(5)
+                        continue
+                
+                if attempt < max_attempts - 1:
+                    time.sleep((2 ** attempt) + random.uniform(0.5, 1.0))
+                else:
+                    raise Exception(error_str)
+
+    def _append_page_markdown(self, output_path: str, page_num: int, markdown: str) -> None:
+        """Append a single page's markdown to the output file."""
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "a", encoding="utf-8") as f:
+            f.write(f"<!-- Page {page_num} -->\n{markdown}\n\n---\n\n")
 
     def _assemble_markdown(self, job_name: str) -> str:
         """Assemble all completed pages into a single markdown string."""
