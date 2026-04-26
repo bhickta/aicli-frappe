@@ -133,7 +133,16 @@ class OcrService:
             if shutil.which("lms"):
                 try:
                     logger.info("Loading model %s into LMS...", job.model_name)
-                    subprocess.run(["lms", "load", job.model_name], capture_output=True, timeout=60)
+                    # Unload any existing models first for a clean VRAM state
+                    subprocess.run(["lms", "unload", "--all"], capture_output=True, timeout=30)
+                    time.sleep(1)
+                    # Load with maximum GPU offload and max context window
+                    subprocess.run(
+                        ["lms", "load", job.model_name,
+                         "--gpu", "max",
+                         "--context-length", "32768"],
+                        capture_output=True, timeout=120,
+                    )
                 except Exception as e:
                     logger.error("Failed to load LMS model: %s", e)
         provider = self._get_provider(job.model_name)
