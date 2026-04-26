@@ -96,10 +96,9 @@ class FileManager:
     @staticmethod
     def get_full_path_from_url(file_url: str) -> str:
         """Resolve a Frappe File URL to a full local filesystem path."""
-        from frappe.utils.file_manager import get_file_path
         
-        # If it's already an absolute path, return it
-        if os.path.isabs(file_url):
+        # If it's an actual OS absolute path (e.g., /workspace/...)
+        if os.path.isabs(file_url) and not file_url.startswith("/files/") and not file_url.startswith("/private/files/"):
             return file_url
             
         # Get relative path from URL (e.g., /files/abc.zip -> public/files/abc.zip)
