@@ -9,10 +9,10 @@ import type {
 
 export class OcrApiClient {
   async startZipOcr(
-    zipPath: string, modelName?: string, maxWorkers = 3,
+    fileUrl: string, modelName?: string, maxWorkers = 3,
   ): Promise<StartOcrResponse> {
     return frappe.call('start_zip_ocr', {
-      zip_path: zipPath, model_name: modelName, max_workers: maxWorkers,
+      file_url: fileUrl, model_name: modelName, max_workers: maxWorkers,
     })
   }
 
@@ -45,16 +45,20 @@ export class OcrApiClient {
     return frappe.call('reset_ocr_job', { job_name: jobName })
   }
 
+  /**
+   * Uploads a file using Frappe's native file handler and then starts the OCR job.
+   */
   async uploadAndOcr(
     file: File, modelName?: string, maxWorkers = 3,
   ): Promise<StartOcrResponse> {
     const formData = new FormData()
     formData.append('file', file)
-    if (modelName) formData.append('model_name', modelName)
-    if (maxWorkers) formData.append('max_workers', String(maxWorkers))
+    formData.append('is_private', '0')
+    formData.append('folder', 'Home/Attachments')
 
     const csrfToken = await frappe.getCsrfToken()
-    const res = await fetch(`${API_BASE}/api/method/aicli.api.upload_zip_for_ocr`, {
+    // Use Frappe's native upload handler
+    const uploadRes = await fetch(`${API_BASE}/api/method/frappe.handler.upload_file`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -63,9 +67,18 @@ export class OcrApiClient {
       body: formData,
     })
 
-    if (!res.ok) throw new Error(`Upload failed: HTTP ${res.status}`)
-    const data = await res.json()
-    return data.message
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text()
+      throw new Error(`Upload failed: HTTP ${uploadRes.status} - ${errText}`)
+    }
+    
+    const uploadData = await uploadRes.json()
+    const fileUrl = uploadData.message.file_url
+
+    if (!fileUrl) throw new Error('Upload succeeded but no file_url returned.')
+
+    // Now start the OCR job using the file URL
+    return this.startZipOcr(fileUrl, modelName, maxWorkers)
   }
 }
 

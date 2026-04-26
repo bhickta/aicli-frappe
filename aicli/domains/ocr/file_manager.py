@@ -94,6 +94,27 @@ class FileManager:
         return zip_path
 
     @staticmethod
+    def get_full_path_from_url(file_url: str) -> str:
+        """Resolve a Frappe File URL to a full local filesystem path."""
+        from frappe.utils.file_manager import get_file_path
+        
+        # If it's already an absolute path, return it
+        if os.path.isabs(file_url):
+            return file_url
+            
+        # Get relative path from URL (e.g., /files/abc.zip -> public/files/abc.zip)
+        if file_url.startswith("/files/"):
+            rel_path = os.path.join("public", file_url.lstrip("/"))
+        elif file_url.startswith("/private/files/"):
+            rel_path = file_url.lstrip("/")
+        else:
+            # Fallback for other URLs
+            rel_path = file_url.lstrip("/")
+
+        # Use robust internal path resolver
+        return FileManager._get_path(rel_path)
+
+    @staticmethod
     def extract_zip(zip_path: str, images_dir: str) -> list[str]:
         """Extract a ZIP file and return a sorted list of image paths."""
         import zipfile

@@ -213,37 +213,33 @@ def reset_ocr_job(job_name):
     return {"ok": True}
 
 @frappe.whitelist()
-def upload_zip_for_ocr():
-    """Upload a ZIP file containing images and immediately start OCR."""
+def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None):
+    """Start OCR job from a Frappe File URL."""
     from aicli.domains.ocr.job_service import OcrJobService
     from aicli.domains.ocr.file_manager import FileManager
     from aicli.domains.ocr.constants import DEFAULT_MODEL, DEFAULT_MAX_WORKERS, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
 
-    if "file" not in frappe.request.files:
-        frappe.throw("No file uploaded")
-
-    f = frappe.request.files["file"]
-    upload_dir = FileManager.get_uploads_dir()
-    zip_path = os.path.join(upload_dir, f.filename)
+    # Resolve URL to local path
+    zip_path = FileManager.get_full_path_from_url(file_url)
     
-    logger.info(f"Saving OCR ZIP upload to: {zip_path}")
-    f.save(zip_path)
-    logger.info(f"Saved OCR ZIP upload ({os.path.getsize(zip_path)} bytes)")
-
-    model_name = frappe.request.form.get("model_name")
-    max_workers = int(frappe.request.form.get("max_workers", DEFAULT_MAX_WORKERS))
     if not model_name:
         doc = frappe.get_single("AICLI Settings")
         model_name = doc.model_name or DEFAULT_MODEL
 
+    if max_workers is None:
+        max_workers = DEFAULT_MAX_WORKERS
+
     svc = OcrJobService()
-    # We don't know total_pages yet until we extract it, so pass 0 for now.
     job_name = svc.create_job(zip_path, model_name)
 
     frappe.enqueue(
         "aicli.domains.ocr.tasks.run_ocr_job",
-        ocr_job_name=job_name, max_workers=max_workers,
-        queue=ENQUEUE_QUEUE, timeout=ENQUEUE_TIMEOUT, is_async=True,
+        ocr_job_name=job_name, 
+        max_workers=max_workers,
+        queue=ENQUEUE_QUEUE, 
+        timeout=ENQUEUE_TIMEOUT, 
+        is_async=True,
     )
+
     return {"job_name": job_name, "zip_path": zip_path, "status": "Queued"}
 
