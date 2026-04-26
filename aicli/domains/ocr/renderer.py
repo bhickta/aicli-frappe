@@ -1,15 +1,17 @@
 """
-OCR Renderer — PDF page to image conversion with caching.
+OCR Renderer — High-performance PDF page to image conversion.
 
-Responsibilities:
-  - Render PDF pages to PNG images using PyMuPDF.
-  - Skip already-rendered pages (cache by file existence).
-  - Support parallel rendering via ThreadPoolExecutor.
+Optimized for speed:
+  - ProcessPoolExecutor for true CPU parallelism (bypasses GIL)
+  - Large chunk sizes to amortize PDF open/close overhead
+  - File-existence caching to skip already-rendered pages
+  - Auto-detects CPU count for optimal worker allocation
 """
 
 import os
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
 
 import fitz  # PyMuPDF
 import PIL.Image
@@ -23,7 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 def _render_chunk(pdf_path: str, images_dir: str, dpi: int, page_numbers: list[int]) -> dict[int, str]:
-    """Render a chunk of pages from a single PDF handle. Returns {page_number: image_path}."""
+    """
+    Render a chunk of pages from a single PDF handle.
+    Runs in a separate PROCESS for true parallelism.
+    Returns {page_number: image_path}.
+    """
     results = {}
     try:
         doc = fitz.open(pdf_path)
@@ -35,7 +41,6 @@ def _render_chunk(pdf_path: str, images_dir: str, dpi: int, page_numbers: list[i
 
             # Cache: skip if image already exists
             if os.path.isfile(img_path):
-                logger.debug("Page %d already rendered, skipping", p_num)
                 results[p_num] = img_path
                 continue
 
@@ -46,21 +51,27 @@ def _render_chunk(pdf_path: str, images_dir: str, dpi: int, page_numbers: list[i
 
         doc.close()
     except Exception as e:
-        logger.error("Rendering chunk failed for %s: %s", pdf_path, e, exc_info=True)
+        # Log to stderr since logger may not be configured in subprocess
+        import traceback
+        traceback.print_exc()
     return results
 
 
 class PdfRenderer:
-    """Renders PDF pages to PNG images with parallel processing and caching."""
+    """Renders PDF pages to PNG images with process-based parallelism and caching."""
+
+    # Minimum pages per worker to amortize PDF open/close overhead
+    MIN_PAGES_PER_WORKER = 20
 
     def __init__(self, pdf_path: str, images_dir: str, dpi: int) -> None:
         self._pdf_path = os.path.abspath(pdf_path)
-        self._images_dir = os.path.abspath(images_dir)
+        self._images_dir = os.path.abspath(images_dir) if images_dir else ""
         self._dpi = dpi
 
     def ensure_output_dir(self) -> None:
         """Create the images output directory if it doesn't exist."""
-        os.makedirs(self._images_dir, exist_ok=True)
+        if self._images_dir:
+            os.makedirs(self._images_dir, exist_ok=True)
 
     def count_pages(self) -> int:
         """Return the total number of pages in the PDF."""
@@ -70,27 +81,55 @@ class PdfRenderer:
         return count
 
     def render_pages(
-        self, page_numbers: list[int], max_workers: int = 4
+        self, page_numbers: list[int], max_workers: int | None = None,
     ) -> dict[int, str]:
         """
-        Render the given page numbers in parallel chunks.
-        Returns a mapping of page_number → image_path.
+        Render the given page numbers using ProcessPoolExecutor.
+
+        Uses true OS-level parallelism (no GIL) for maximum throughput.
+        Auto-tunes worker count based on CPU cores and page count.
         Skips pages whose image already exists on disk (caching).
         """
         if not page_numbers:
             return {}
 
         self.ensure_output_dir()
-        workers = min(max_workers, len(page_numbers))
-        chunks = self._split_into_chunks(page_numbers, workers)
+
+        # Filter out already-rendered pages before spawning processes
+        to_render = []
+        cached: dict[int, str] = {}
+        for p_num in page_numbers:
+            img_path = os.path.join(self._images_dir, PAGE_IMAGE_FORMAT.format(p_num))
+            if os.path.isfile(img_path):
+                cached[p_num] = img_path
+            else:
+                to_render.append(p_num)
+
+        if cached:
+            logger.info("Skipping %d already-rendered pages (cached)", len(cached))
+
+        if not to_render:
+            return cached
+
+        # Auto-tune workers: use all CPUs, but cap by page count
+        cpus = cpu_count() or 4
+        effective_workers = max_workers or cpus
+        effective_workers = min(effective_workers, cpus, len(to_render))
+        # Ensure each worker gets enough pages to amortize overhead
+        effective_workers = max(1, min(
+            effective_workers,
+            len(to_render) // self.MIN_PAGES_PER_WORKER or 1,
+        ))
+
+        chunks = self._split_into_chunks(to_render, effective_workers)
 
         logger.info(
-            "Rendering %d pages with %d workers (pdf=%s, dpi=%d)",
-            len(page_numbers), workers, os.path.basename(self._pdf_path), self._dpi,
+            "Rendering %d pages with %d processes (pdf=%s, dpi=%d)",
+            len(to_render), len(chunks), os.path.basename(self._pdf_path), self._dpi,
         )
 
-        all_results: dict[int, str] = {}
-        with ThreadPoolExecutor(max_workers=workers) as executor:
+        all_results = dict(cached)
+        with ProcessPoolExecutor(max_workers=len(chunks)) as executor:
             futures = {
                 executor.submit(
                     _render_chunk, self._pdf_path, self._images_dir, self._dpi, chunk
@@ -101,14 +140,20 @@ class PdfRenderer:
                 try:
                     chunk_results = future.result()
                     all_results.update(chunk_results)
-                    logger.info("Rendered chunk of %d pages", len(chunk_results))
+                    logger.info("Rendered chunk: %d pages", len(chunk_results))
                 except Exception as e:
                     logger.error("Chunk rendering failed: %s", e)
 
+        logger.info(
+            "Rendering complete: %d/%d pages (%.0f%% cached)",
+            len(all_results), len(page_numbers),
+            len(cached) / len(page_numbers) * 100 if page_numbers else 0,
+        )
         return all_results
 
     @staticmethod
     def _split_into_chunks(items: list, num_chunks: int) -> list[list]:
         """Split a list into approximately equal chunks."""
         chunk_size = max(1, len(items) // num_chunks)
-        return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+        chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+        return chunks

@@ -138,16 +138,105 @@ def upload_pdfs():
     return {"ok": True}
 
 # ──────────────────────────────────────────────────────────────────
-# OCR Endpoints — delegated to aicli.api.ocr_api
+# OCR Endpoints — thin wrappers delegating to domain layer
 # ──────────────────────────────────────────────────────────────────
-from aicli.api.ocr_api import (  # noqa: F401 — re-exported for backward compat
-    start_ocr,
-    ocr_status,
-    ocr_output,
-    ocr_jobs,
-    resume_ocr,
-    stop_ocr,
-    delete_ocr_job,
-    reset_ocr_job,
-    upload_pdf_for_ocr,
-)
+
+@frappe.whitelist()
+def start_ocr(pdf_path, model_name=None, dpi=200, max_workers=3):
+    """Create and enqueue an OCR job."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    from aicli.domains.ocr.constants import DEFAULT_MODEL, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
+    svc = OcrJobService()
+    if not model_name:
+        doc = frappe.get_single("AICLI Settings")
+        model_name = doc.model_name or DEFAULT_MODEL
+    job_name = svc.create_job(pdf_path, model_name, int(dpi))
+    frappe.enqueue(
+        "aicli.domains.ocr.tasks.run_ocr_job",
+        ocr_job_name=job_name, max_workers=int(max_workers),
+        queue=ENQUEUE_QUEUE, timeout=ENQUEUE_TIMEOUT, is_async=True,
+    )
+    return {"job_name": job_name, "status": "Queued"}
+
+@frappe.whitelist()
+def ocr_status(job_name):
+    """Get the current status of an OCR job."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    return OcrJobService().get_status(job_name)
+
+@frappe.whitelist()
+def ocr_output(job_name):
+    """Get the assembled markdown output."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    return {"markdown": OcrJobService().get_output(job_name)}
+
+@frappe.whitelist()
+def ocr_jobs():
+    """List all OCR jobs."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    return OcrJobService().list_jobs()
+
+@frappe.whitelist()
+def resume_ocr(job_name, max_workers=3):
+    """Resume a paused or failed OCR job."""
+    from aicli.domains.ocr.constants import ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
+    frappe.enqueue(
+        "aicli.domains.ocr.tasks.run_ocr_job",
+        ocr_job_name=job_name, max_workers=int(max_workers),
+        queue=ENQUEUE_QUEUE, timeout=ENQUEUE_TIMEOUT, is_async=True,
+    )
+    return {"job_name": job_name, "status": "Resuming"}
+
+@frappe.whitelist()
+def stop_ocr(job_name):
+    """Stop a running OCR job."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    OcrJobService().stop_job(job_name)
+    return {"status": "Paused"}
+
+@frappe.whitelist()
+def delete_ocr_job(job_name):
+    """Delete an OCR job and all its data."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    OcrJobService().delete_job(job_name)
+    return {"ok": True}
+
+@frappe.whitelist()
+def reset_ocr_job(job_name):
+    """Reset an OCR job — wipe progress, keep images."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    OcrJobService().reset_job(job_name)
+    return {"ok": True}
+
+@frappe.whitelist()
+def upload_pdf_for_ocr():
+    """Upload a PDF and immediately start OCR."""
+    from aicli.domains.ocr.job_service import OcrJobService
+    from aicli.domains.ocr.file_manager import FileManager
+    from aicli.domains.ocr.constants import DEFAULT_MODEL, DEFAULT_DPI, DEFAULT_MAX_WORKERS, ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
+
+    if "file" not in frappe.request.files:
+        frappe.throw("No file uploaded")
+
+    f = frappe.request.files["file"]
+    upload_dir = FileManager.get_uploads_dir()
+    file_path = os.path.join(upload_dir, f.filename)
+    f.save(file_path)
+
+    model_name = frappe.request.form.get("model_name")
+    dpi = int(frappe.request.form.get("dpi", DEFAULT_DPI))
+    max_workers = int(frappe.request.form.get("max_workers", DEFAULT_MAX_WORKERS))
+    if not model_name:
+        doc = frappe.get_single("AICLI Settings")
+        model_name = doc.model_name or DEFAULT_MODEL
+
+    svc = OcrJobService()
+    job_name = svc.create_job(file_path, model_name, dpi)
+
+    frappe.enqueue(
+        "aicli.domains.ocr.tasks.run_ocr_job",
+        ocr_job_name=job_name, max_workers=max_workers,
+        queue=ENQUEUE_QUEUE, timeout=ENQUEUE_TIMEOUT, is_async=True,
+    )
+    return {"job_name": job_name, "pdf_path": file_path, "status": "Queued"}
+
