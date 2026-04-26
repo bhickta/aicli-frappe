@@ -160,22 +160,21 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
     # 1. Fetch the File DocType
     file_doc = frappe.get_doc("File", {"file_url": file_url})
     
-    # 2. Unzip it
-    # We use frappe's native unzip. It returns a list of File docs or we just rely on its behavior.
-    file_doc.unzip()
-    
-    # After unzip, the files are typically created with `attached_to_folder` or `folder`.
-    # `unzip()` creates a new folder named after the zip file (without extension) if one doesn't exist,
-    # and places all extracted files there.
     import os
     folder_name = os.path.splitext(file_doc.file_name)[0]
     
-    # Fetch all newly created file docs
+    # Check if we already have files in this folder
     extracted_files = frappe.get_all("File", filters={"folder": folder_name, "is_folder": 0}, fields=["name", "file_url", "folder"])
+    
+    # 2. Unzip it only if not already unzipped
     if not extracted_files:
-        # Fallback if folder logic differs: fetch files attached to same parent
-        extracted_files = frappe.get_all("File", filters={"attached_to_name": file_doc.attached_to_name, "is_folder": 0, "name": ("!=", file_doc.name)}, fields=["name", "file_url", "folder"])
-        
+        file_doc.unzip()
+        # Fetch newly created file docs
+        extracted_files = frappe.get_all("File", filters={"folder": folder_name, "is_folder": 0}, fields=["name", "file_url", "folder"])
+        if not extracted_files:
+            # Fallback if folder logic differs: fetch files attached to same parent
+            extracted_files = frappe.get_all("File", filters={"attached_to_name": file_doc.attached_to_name, "is_folder": 0, "name": ("!=", file_doc.name)}, fields=["name", "file_url", "folder"])
+            
     if not extracted_files:
         frappe.throw("No files found after unzipping the archive.")
 
@@ -184,6 +183,9 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
     # Create job using the new repository method
     svc = OcrJobService()
     job_name = svc.create_job_from_files(file_docs, model_name)
+    
+    # Save the file_doc name to job.zip_path so we can clean it up later
+    frappe.db.set_value("OCR Job", job_name, "zip_path", file_doc.name)
 
     frappe.enqueue(
         "aicli.domains.ocr.tasks.run_ocr_job",

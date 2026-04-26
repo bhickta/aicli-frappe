@@ -126,6 +126,22 @@ class OcrJobService:
             self._file_manager.cleanup_job_files(
                 job.output_path, job.status == "Completed"
             )
+            
+            # Clean up native Frappe File records (the zip and its extracted contents)
+            if job.zip_path and job.zip_path != "Native Unzip":
+                try:
+                    file_doc = frappe.get_doc("File", job.zip_path)
+                    import os
+                    folder_name = os.path.splitext(file_doc.file_name)[0]
+                    # Delete all extracted images in the same folder
+                    extracted_files = frappe.get_all("File", filters={"folder": folder_name, "is_folder": 0})
+                    for ef in extracted_files:
+                        frappe.delete_doc("File", ef.name, ignore_permissions=True, force=True)
+                    # Delete the original zip file itself
+                    frappe.delete_doc("File", file_doc.name, ignore_permissions=True, force=True)
+                except Exception as ex:
+                    logger.error("Failed to clean up Frappe File records: %s", ex)
+                    
         except Exception as e:
             logger.error("File cleanup error: %s", e)
         self._repo.delete_job(job_name)
