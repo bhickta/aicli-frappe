@@ -17,10 +17,34 @@ from typing import Optional
 # Disable PIL's decompression bomb limit for large, high-dpi PDF pages
 PIL.Image.MAX_IMAGE_PIXELS = None
 
-import frappe
-from frappe.utils import now_datetime
+import random
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
+
+def render_pdf_pages_static(pdf_path, images_dir, dpi, p_nums):
+    """Helper for ProcessPoolExecutor - renders a chunk of pages with one PDF handle."""
+    import os
+    import fitz
+    results = {}
+    try:
+        doc = fitz.open(pdf_path)
+        for p_num in p_nums:
+            page = doc[p_num - 1]
+            zoom = dpi / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            img_path = os.path.join(images_dir, f"page_{p_num:04d}.png")
+            pix.save(img_path)
+            results[p_num] = img_path
+        doc.close()
+    except Exception as e:
+        # Using print as logger might not be initialized in child processes
+        print(f"Error in render_pdf_pages_static for {pdf_path}: {e}")
+    return results
+
+import frappe
+from frappe.utils import now_datetime
 
 # ─── System Prompt ────────────────────────────────────────────────
 OCR_SYSTEM_PROMPT = "You are a professional document digitizer. Output valid Markdown only."
@@ -135,37 +159,37 @@ class OcrService:
             logger.info("No pending pages for job %s", job_name)
             return
 
-        # 1) Massive Bulk Render (Parallel Chunked)
+        # 1) Massive Bulk Render (Process Parallel)
+        import concurrent.futures
+        from concurrent.futures import ProcessPoolExecutor
+        
         logger.info("Bulk rendering %d pages for job %s...", len(pending_pages), job_name)
         
-        def render_chunk(p_nums):
-            results = {}
-            try:
-                t_pdf = fitz.open(job.pdf_path)
-                for p_num in p_nums:
-                    path = self._render_page(t_pdf, p_num, images_dir, job.dpi)
-                    results[p_num] = path
-                t_pdf.close()
-            except Exception as e:
-                logger.error("Chunk render failed: %s", e)
-            return results
-
-        # Split pending pages into chunks (e.g., 50 pages per worker)
+        # Split into chunks for multi-processing
         all_p_nums = [p["page_number"] for p in pending_pages]
-        chunk_size = max(1, len(all_p_nums) // (os.cpu_count() or 4))
+        num_workers = min(os.cpu_count() or 4, len(all_p_nums))
+        chunk_size = max(1, len(all_p_nums) // num_workers)
         chunks = [all_p_nums[x:x+chunk_size] for x in range(0, len(all_p_nums), chunk_size)]
 
         render_results = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
-            chunk_results = list(executor.map(render_chunk, chunks))
+        # Use ProcessPoolExecutor for heavy CPU tasks like rendering
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            # We need a top-level function or a static method for ProcessPool
+            # I'll use a helper that opens the PDF once per PROCESS
+            import functools
+            func = functools.partial(render_pdf_pages_static, job.pdf_path, images_dir, job.dpi)
+            chunk_results = list(executor.map(func, chunks))
             for res in chunk_results:
                 render_results.update(res)
 
-        # Update DB with image paths
-        for page_rec in pending_pages:
-            p_num = page_rec["page_number"]
-            if render_results.get(p_num):
-                frappe.db.set_value("OCR Page", page_rec["name"], "image_path", render_results[p_num], update_modified=False)
+        # 2) Bulk Update Database (One Query instead of 600)
+        logger.info("Updating database paths for %s...", job_name)
+        for p_num, i_path in render_results.items():
+            frappe.db.sql("""
+                UPDATE `tabOCR Page` 
+                SET image_path = %s 
+                WHERE ocr_job = %s AND page_number = %s
+            """, (i_path, job_name, p_num))
         frappe.db.commit()
 
         # 2) Process LLM calls in batches
