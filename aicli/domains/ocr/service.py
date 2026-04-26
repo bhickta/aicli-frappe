@@ -143,7 +143,7 @@ class OcrService:
         # Get pending pages (for resume)
         pending_pages = frappe.get_all(
             "OCR Page",
-            filters={"ocr_job": job_name, "status": ["in", ["Pending", "Failed"]]},
+            filters={"ocr_job": job_name, "status": ["in", ["Pending", "Failed", "Processing"]]},
             fields=["name", "page_number"],
             order_by="page_number asc",
         )
