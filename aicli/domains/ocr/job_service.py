@@ -43,8 +43,8 @@ class OcrJobService:
 
     def create_job(self, zip_path: str, model_name: str) -> str:
         """Create an OCR Job from a ZIP file. Returns the job name."""
-        if not os.path.exists(zip_path):
-            frappe.throw(f"ZIP file not found: {zip_path}")
+        # Ensure we have an absolute, valid path
+        zip_path = self._file_manager.validate_zip(zip_path)
 
         output_path = self._file_manager.build_output_path(zip_path).replace(".zip", "")
         
