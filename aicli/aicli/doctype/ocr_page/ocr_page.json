@@ -6,6 +6,7 @@
     "field_order": [
         "ocr_job",
         "page_number",
+        "source_filename",
         "status",
         "markdown_output",
         "image_path",
@@ -28,6 +29,13 @@
             "in_list_view": 1,
             "reqd": 1
         },
+        {
+            "fieldname": "source_filename",
+            "fieldtype": "Data",
+            "label": "Source Filename",
+            "in_list_view": 1
+        },
+
         {
             "fieldname": "status",
             "fieldtype": "Select",

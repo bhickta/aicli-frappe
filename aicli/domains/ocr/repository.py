@@ -55,6 +55,7 @@ class OcrRepository:
                 "doctype": "OCR Page",
                 "ocr_job": job_name,
                 "page_number": data["page_number"],
+                "source_filename": data.get("source_filename"),
                 "image_path": data["image_path"],
                 "status": STATUS_PENDING,
             }).insert(ignore_permissions=True)
@@ -154,7 +155,7 @@ class OcrRepository:
                 "ocr_job": job_name,
                 "status": ["in", [STATUS_PENDING, STATUS_FAILED, STATUS_PROCESSING]],
             },
-            fields=["name", "page_number"],
+            fields=["name", "page_number", "source_filename"],
             order_by="page_number asc",
         )
 
@@ -163,7 +164,7 @@ class OcrRepository:
         return frappe.get_all(
             "OCR Page",
             filters={"ocr_job": job_name},
-            fields=["page_number", "status", "processing_time", "error"],
+            fields=["page_number", "source_filename", "status", "processing_time", "error"],
             order_by="page_number asc",
         )
 
@@ -231,7 +232,7 @@ class OcrRepository:
         return frappe.get_all(
             "OCR Page",
             filters={"ocr_job": job_name, "status": STATUS_COMPLETED},
-            fields=["page_number", "markdown_output"],
+            fields=["page_number", "source_filename", "markdown_output"],
             order_by="page_number asc",
         )
 

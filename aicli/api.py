@@ -190,14 +190,24 @@ def start_zip_ocr(file_url: str, model_name: str = None, max_workers: int = None
         # Filter out the original ZIP if it's in the list
         image_urls = [url for url in image_urls if url != file_doc.file_url]
         
-        if not image_urls:
-            frappe.throw("No images found after unzipping the archive.")
-            
+        import re
+        def natural_sort_key(s):
+            return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+        
+        image_urls.sort(key=natural_sort_key)
+        
         # Create the pages in the DB using the standard File URLs
+
         pages_data = []
         for i, url in enumerate(image_urls):
-            # We store the URL (/files/...) in the DB for portability
-            pages_data.append({"page_number": i + 1, "image_path": url})
+            # Extract the original filename from the URL
+            filename = url.split("/")[-1]
+            # We store the URL (/files/...) and the filename for proper ordering
+            pages_data.append({
+                "page_number": i + 1, 
+                "image_path": url,
+                "source_filename": filename
+            })
             
         svc._repo.create_pages(job_name, pages_data)
         

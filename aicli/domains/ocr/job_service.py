@@ -77,6 +77,31 @@ class OcrJobService:
 
         final_status = self._repo.finalize_job(job_name)
         logger.info("Job %s finalized with status: %s", job_name, final_status)
+
+        # Handle system shutdown if requested
+        if job.shutdown_after_completion and final_status == JOB_COMPLETED:
+            self._shutdown_host()
+
+    def _shutdown_host(self) -> None:
+        """Attempt to shut down the host machine from inside Docker via D-Bus."""
+        import subprocess
+        cmd = [
+            "dbus-send", "--system", "--print-reply", 
+            "--dest=org.freedesktop.login1", 
+            "/org/freedesktop/login1", 
+            "org.freedesktop.login1.Manager.PowerOff", "boolean:true"
+        ]
+        logger.info("Triggering host shutdown via D-Bus...")
+        try:
+            # Check if dbus-send exists
+            if subprocess.run(["which", "dbus-send"], capture_output=True).returncode != 0:
+                logger.error("dbus-send not found. Please install dbus-user-session or similar.")
+                return
+
+            subprocess.run(cmd, check=True, capture_output=True)
+            logger.info("Shutdown command sent successfully.")
+        except Exception as e:
+            logger.error("Failed to shut down host: %s. Ensure /var/run/dbus/system_bus_socket is mounted.", e)
     def get_status(self, job_name: str) -> dict:
         """Return the current status snapshot as a dict."""
         return self._repo.get_job_status(job_name).to_dict()
@@ -183,30 +208,31 @@ class OcrJobService:
                 future = executor.submit(
                     caller.process_page, abs_image_path, page_rec["page_number"]
                 )
-                futures[future] = page_rec["name"]
+                futures[future] = (page_rec["name"], page_rec.get("source_filename"))
 
             # Collect batch results to sort them before writing
             batch_results = []
             for future in as_completed(futures):
-                page_name = futures[future]
+                page_name, filename = futures[future]
                 try:
                     result = future.result()
                     self._repo.save_page_result(
                         page_name, result.markdown, result.elapsed_seconds
                     )
-                    batch_results.append(result)
+                    batch_results.append((result, filename))
                 except Exception as e:
                     logger.error("Page %s failed: %s", page_name, e)
                     self._repo.save_page_error(page_name, str(e))
 
             # Write the batch in correct page order
-            batch_results.sort(key=lambda x: x.page_number)
-            for result in batch_results:
-                writer.append_page(result.page_number, result.markdown)
+            batch_results.sort(key=lambda x: x[0].page_number)
+            for result, filename in batch_results:
+                writer.append_page(result.page_number, result.markdown, label=filename)
                 logger.info(
-                    "Page %d/%d saved (%.1fs)",
-                    result.page_number, total_pages, result.elapsed_seconds,
+                    "Page %d/%d (%s) saved (%.1fs)",
+                    result.page_number, total_pages, filename, result.elapsed_seconds,
                 )
+
 
         frappe.db.commit()
 

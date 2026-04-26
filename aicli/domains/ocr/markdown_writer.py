@@ -23,11 +23,13 @@ class MarkdownWriter:
     def ensure_dir(self) -> None:
         os.makedirs(os.path.dirname(self._output_path), exist_ok=True)
 
-    def append_page(self, page_num: int, markdown: str) -> None:
+    def append_page(self, page_num: int, markdown: str, label: str = None) -> None:
         """Append a single page's markdown to the output file."""
         self.ensure_dir()
+        display_label = label or f"Page {page_num}"
+        header = f"\n\n<!-- Source: {display_label} -->\n"
         with open(self._output_path, "a", encoding="utf-8") as f:
-            f.write(PAGE_MARKDOWN_HEADER.format(page_num=page_num))
+            f.write(header)
             f.write(markdown)
             f.write(PAGE_MARKDOWN_SEPARATOR)
 
@@ -62,7 +64,9 @@ class MarkdownWriter:
         """Assemble markdown string from page records without writing to disk."""
         parts = []
         for p in pages:
-            parts.append(PAGE_MARKDOWN_HEADER.format(page_num=p["page_number"]))
+            label = p.get("source_filename") or f"Page {p['page_number']}"
+            header = f"\n\n<!-- Source: {label} -->\n"
+            parts.append(header)
             parts.append(p.get("markdown_output") or "")
             parts.append(PAGE_MARKDOWN_SEPARATOR)
         return "".join(parts)

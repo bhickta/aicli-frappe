@@ -7,6 +7,7 @@
         "zip_path",
         "output_path",
         "model_name",
+        "shutdown_after_completion",
         "status",
         "total_pages",
         "completed_pages",
@@ -34,6 +35,13 @@
             "label": "Model Name",
             "in_list_view": 1
         },
+        {
+            "fieldname": "shutdown_after_completion",
+            "fieldtype": "Check",
+            "label": "Shutdown PC after completion",
+            "default": "0"
+        },
+
         {
             "fieldname": "status",
             "fieldtype": "Select",
