@@ -58,7 +58,7 @@ def _render_chunk(pdf_path: str, images_dir: str, dpi: int, page_numbers: list[i
 class PdfRenderer:
     """Renders PDF pages to images with process-based parallelism and caching."""
 
-    MIN_PAGES_PER_WORKER = 50
+    MIN_PAGES_PER_WORKER = 10  # Lowered to utilize all 12 cores even on smaller PDFs
 
     def __init__(self, pdf_path: str, images_dir: str, dpi: int) -> None:
         self._pdf_path = os.path.abspath(pdf_path)
