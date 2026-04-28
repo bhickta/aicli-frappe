@@ -1,0 +1,100 @@
+{
+    "actions": [],
+    "creation": "2026-04-28 15:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "status",
+        "whisper_model",
+        "llm_model",
+        "total_tracks",
+        "transcribed_tracks",
+        "analyzed_tracks",
+        "failed_tracks",
+        "started_at",
+        "completed_at",
+        "playlist_json",
+        "error"
+    ],
+    "fields": [
+        {
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "label": "Status",
+            "options": "Queued\nRunning\nCompleted\nFailed\nPaused",
+            "default": "Queued",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "whisper_model",
+            "fieldtype": "Data",
+            "label": "Whisper Model",
+            "default": "base",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "llm_model",
+            "fieldtype": "Data",
+            "label": "LLM Model",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "total_tracks",
+            "fieldtype": "Int",
+            "label": "Total Tracks",
+            "default": "0",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "transcribed_tracks",
+            "fieldtype": "Int",
+            "label": "Transcribed Tracks",
+            "default": "0"
+        },
+        {
+            "fieldname": "analyzed_tracks",
+            "fieldtype": "Int",
+            "label": "Analyzed Tracks",
+            "default": "0"
+        },
+        {
+            "fieldname": "failed_tracks",
+            "fieldtype": "Int",
+            "label": "Failed Tracks",
+            "default": "0"
+        },
+        {
+            "fieldname": "started_at",
+            "fieldtype": "Datetime",
+            "label": "Started At"
+        },
+        {
+            "fieldname": "completed_at",
+            "fieldtype": "Datetime",
+            "label": "Completed At"
+        },
+        {
+            "fieldname": "playlist_json",
+            "fieldtype": "Long Text",
+            "label": "Playlist JSON"
+        },
+        {
+            "fieldname": "error",
+            "fieldtype": "Long Text",
+            "label": "Error"
+        }
+    ],
+    "module": "AICLI",
+    "name": "Audio Job",
+    "naming_rule": "Expression (old style)",
+    "autoname": "hash",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "read": 1,
+            "role": "System Manager",
+            "write": 1
+        }
+    ]
+}

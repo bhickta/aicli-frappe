@@ -25,6 +25,13 @@
           🎬
         </button>
         <button 
+          :class="['nav-btn', { active: workspace === 'audio' }]" 
+          @click="workspace = 'audio'"
+          title="Audio Studio"
+        >
+          🎵
+        </button>
+        <button 
           :class="['nav-btn', { active: workspace === 'news' }]" 
           @click="workspace = 'news'"
           title="News Hub"
@@ -56,6 +63,7 @@
       <AnalyzeStudio v-show="workspace === 'analyze'" />
       <OcrStudio v-show="workspace === 'ocr'" />
       <VideoStudio v-show="workspace === 'video'" />
+      <AudioStudio v-show="workspace === 'audio'" />
       <NewsStudio v-show="workspace === 'news'" />
       <ImageStudio v-show="workspace === 'image'" />
       <SettingsStudio v-show="workspace === 'settings'" />
@@ -71,6 +79,7 @@ import VideoStudio from './components/VideoStudio.vue'
 import NewsStudio from './components/NewsStudio.vue'
 import ImageStudio from './components/ImageStudio.vue'
 import OcrStudio from './components/OcrStudio.vue'
+import AudioStudio from './components/AudioStudio.vue'
 import SettingsStudio from './components/SettingsStudio.vue'
 
 const workspace = ref('analyze')

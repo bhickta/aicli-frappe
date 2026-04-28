@@ -61,6 +61,15 @@ class AppConfig(BaseModel):
     whisper_batch_size: int = 24            # GPU batch size for Whisper inference
     whisper_beam_size: int = 1              # Beam search width (1 = greedy, fastest)
 
+    # --- Audio Pipeline ---
+    audio_whisper_model: str = "base"       # Default Whisper model for audio transcription
+    audio_whisper_batch_size: int = 16      # Whisper batch size for audio pipeline
+    audio_max_workers: int = 2              # Parallel workers for audio processing
+    audio_analysis_max_tokens: int = 2048   # Token ceiling for track analysis LLM calls
+    audio_analysis_temperature: float = 0.1 # Deterministic for content analysis
+    audio_playlist_max_tokens: int = 4096   # Token ceiling for playlist grouping
+    audio_playlist_temperature: float = 0.2 # Slightly creative for playlist naming
+
     # --- LLM Provider Defaults ---
     llm_default_temperature: float = 0.1    # Default temperature for generic LLM calls
     llm_default_max_tokens: int = 2000      # Default max tokens for generic LLM calls

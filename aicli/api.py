@@ -277,3 +277,120 @@ def reset_ocr_job(job_name):
     from aicli.domains.ocr.job_service import OcrJobService
     OcrJobService().reset_job(job_name)
     return {"ok": True}
+
+# ──────────────────────────────────────────────────────────────────
+# Audio Studio Endpoints — MP3 transcription, analysis, playlists
+# ──────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def upload_audio():
+    """Upload MP3 files and create an Audio Job with tracks."""
+    from aicli.domains.audio.job_service import AudioJobService
+    from aicli.domains.audio.constants import DEFAULT_WHISPER_MODEL, DEFAULT_LLM_MODEL, AUDIO_EXTENSIONS
+
+    if "files" not in frappe.request.files:
+        frappe.throw("No audio files found in request")
+
+    files = frappe.request.files.getlist("files")
+    whisper_model = frappe.form_dict.get("whisper_model", DEFAULT_WHISPER_MODEL)
+    llm_model = frappe.form_dict.get("llm_model", DEFAULT_LLM_MODEL)
+
+    # Save files via Frappe File system
+    file_data = []
+    for f in files:
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in AUDIO_EXTENSIONS:
+            continue
+
+        file_doc = frappe.get_doc({
+            "doctype": "File",
+            "file_name": f.filename,
+            "content": f.read(),
+            "is_private": 0,
+        }).insert(ignore_permissions=True)
+
+        file_data.append({
+            "file_url": file_doc.file_url,
+            "original_filename": f.filename,
+        })
+
+    if not file_data:
+        frappe.throw("No valid audio files found. Supported: " + ", ".join(AUDIO_EXTENSIONS))
+
+    frappe.db.commit()
+
+    svc = AudioJobService()
+    job_name = svc.create_job(file_data, whisper_model, llm_model)
+
+    # Attach files to the job
+    for fd in file_data:
+        try:
+            fdoc = frappe.get_doc("File", {"file_url": fd["file_url"]})
+            fdoc.attached_to_doctype = "Audio Job"
+            fdoc.attached_to_name = job_name
+            fdoc.save(ignore_permissions=True)
+        except Exception:
+            pass
+
+    frappe.db.commit()
+    return {"job_name": job_name, "tracks": len(file_data)}
+
+
+@frappe.whitelist()
+def start_audio_pipeline(job_name, max_workers=2):
+    """Start the audio pipeline in the background."""
+    from aicli.domains.audio.constants import ENQUEUE_TIMEOUT, ENQUEUE_QUEUE
+
+    frappe.enqueue(
+        "aicli.domains.audio.tasks.run_audio_job",
+        job_name=job_name,
+        max_workers=int(max_workers),
+        queue=ENQUEUE_QUEUE,
+        timeout=ENQUEUE_TIMEOUT,
+        is_async=True,
+    )
+    return {"job_name": job_name, "status": "Queued"}
+
+
+@frappe.whitelist()
+def audio_job_status(job_name):
+    """Get the current status of an audio job."""
+    from aicli.domains.audio.job_service import AudioJobService
+    return AudioJobService().get_status(job_name)
+
+
+@frappe.whitelist()
+def audio_tracks(job_name):
+    """Get all tracks for an audio job with metadata."""
+    from aicli.domains.audio.job_service import AudioJobService
+    return AudioJobService().get_tracks(job_name)
+
+
+@frappe.whitelist()
+def audio_playlists(job_name):
+    """Get generated playlists for an audio job."""
+    from aicli.domains.audio.job_service import AudioJobService
+    return AudioJobService().get_playlists(job_name)
+
+
+@frappe.whitelist()
+def audio_jobs():
+    """List all audio jobs."""
+    from aicli.domains.audio.job_service import AudioJobService
+    return AudioJobService().list_jobs()
+
+
+@frappe.whitelist()
+def delete_audio_job(job_name):
+    """Delete an audio job and all its data."""
+    from aicli.domains.audio.job_service import AudioJobService
+    AudioJobService().delete_job(job_name)
+    return {"ok": True}
+
+
+@frappe.whitelist()
+def stop_audio_job(job_name):
+    """Stop a running audio job."""
+    from aicli.domains.audio.job_service import AudioJobService
+    AudioJobService().stop_job(job_name)
+    return {"status": "Paused"}

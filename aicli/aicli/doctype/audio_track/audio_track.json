@@ -1,0 +1,137 @@
+{
+    "actions": [],
+    "creation": "2026-04-28 15:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "audio_job",
+        "file_url",
+        "original_filename",
+        "status",
+        "transcript",
+        "duration_seconds",
+        "genre",
+        "mood",
+        "language",
+        "topics",
+        "summary",
+        "suggested_title",
+        "content_type",
+        "playlist_name",
+        "analysis_json",
+        "error",
+        "elapsed_seconds"
+    ],
+    "fields": [
+        {
+            "fieldname": "audio_job",
+            "fieldtype": "Link",
+            "label": "Audio Job",
+            "options": "Audio Job",
+            "reqd": 1,
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "file_url",
+            "fieldtype": "Data",
+            "label": "File URL",
+            "reqd": 1
+        },
+        {
+            "fieldname": "original_filename",
+            "fieldtype": "Data",
+            "label": "Original Filename",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "label": "Status",
+            "options": "Pending\nTranscribing\nTranscribed\nAnalyzing\nCompleted\nFailed",
+            "default": "Pending",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "transcript",
+            "fieldtype": "Long Text",
+            "label": "Transcript"
+        },
+        {
+            "fieldname": "duration_seconds",
+            "fieldtype": "Float",
+            "label": "Duration (seconds)",
+            "default": "0"
+        },
+        {
+            "fieldname": "genre",
+            "fieldtype": "Data",
+            "label": "Genre"
+        },
+        {
+            "fieldname": "mood",
+            "fieldtype": "Data",
+            "label": "Mood"
+        },
+        {
+            "fieldname": "language",
+            "fieldtype": "Data",
+            "label": "Language"
+        },
+        {
+            "fieldname": "topics",
+            "fieldtype": "Small Text",
+            "label": "Topics"
+        },
+        {
+            "fieldname": "summary",
+            "fieldtype": "Small Text",
+            "label": "Summary"
+        },
+        {
+            "fieldname": "suggested_title",
+            "fieldtype": "Data",
+            "label": "Suggested Title",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "content_type",
+            "fieldtype": "Data",
+            "label": "Content Type"
+        },
+        {
+            "fieldname": "playlist_name",
+            "fieldtype": "Data",
+            "label": "Playlist",
+            "in_list_view": 1
+        },
+        {
+            "fieldname": "analysis_json",
+            "fieldtype": "Long Text",
+            "label": "Analysis JSON"
+        },
+        {
+            "fieldname": "error",
+            "fieldtype": "Long Text",
+            "label": "Error"
+        },
+        {
+            "fieldname": "elapsed_seconds",
+            "fieldtype": "Float",
+            "label": "Elapsed Seconds",
+            "default": "0"
+        }
+    ],
+    "module": "AICLI",
+    "name": "Audio Track",
+    "naming_rule": "Expression (old style)",
+    "autoname": "hash",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "read": 1,
+            "role": "System Manager",
+            "write": 1
+        }
+    ]
+}
