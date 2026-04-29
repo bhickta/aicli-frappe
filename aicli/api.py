@@ -394,3 +394,94 @@ def stop_audio_job(job_name):
     from aicli.domains.audio.job_service import AudioJobService
     AudioJobService().stop_job(job_name)
     return {"status": "Paused"}
+
+
+@frappe.whitelist()
+def generate_recall_triggers(notes):
+    """Generate 4 broad recall triggers based on provided notes using OpenRouter."""
+    import requests
+    import json
+    from datetime import datetime
+
+    settings = frappe.get_single("AICLI Settings")
+    api_key = settings.get_password("openrouter_api_key")
+    model = settings.upsc_recall_model or "openrouter/free"
+
+    if not api_key:
+        frappe.throw("OpenRouter API Key is not set in AICLI Settings.")
+
+    prompt = (
+        "<INSTRUCTION>\nYou are a strict UPSC Examiner. Generate exactly 4 broad recall triggers based on the NOTES provided.\n\n"
+        "STRICT RULES:\n"
+        "1. CONCEPT PARTITIONING (NO REPETITION): Each trigger MUST test a completely different concept from the notes. Do not ask about the same topic twice.\n"
+        "2. Format: Output a simple list starting with * bullet points. No introductory or concluding text.\n"
+        "3. Verb: Start every bullet with: Explain, Detail, Differentiate, or Outline.\n"
+        "4. Style: Keep triggers broad. DO NOT include specific names, numbers, or definitions in the triggers themselves.\n"
+        "</INSTRUCTION>\n\n"
+        "<EXAMPLE OF PARTITIONING>\n"
+        "* Explain the structural transition zones between diverse systems.\n"
+        "* Detail the phenomena of increased biodiversity at environmental boundaries.\n"
+        "* Differentiate the genetic adaptations of specialized populations in unique conditions.\n"
+        "* Outline the community distribution characteristics within a junction zone.\n"
+        "</EXAMPLE>\n\n"
+        "<NOTES>\n" + notes + "\n</NOTES>"
+    )
+
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.0
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        result_data = response.json()
+        triggers = result_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        
+        if not triggers or "error" in triggers.lower():
+            error_msg = result_data.get("error", {}).get("message", "Unknown error from OpenRouter")
+            frappe.throw(f"OpenRouter Error: {error_msg}")
+
+        # Save to history
+        history_doc = frappe.get_doc({
+            "doctype": "UPSC Recall History",
+            "notes": notes,
+            "triggers": triggers,
+            "model": model,
+            "timestamp": frappe.utils.now_datetime()
+        })
+        history_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"triggers": triggers, "history_name": history_doc.name}
+
+    except Exception as e:
+        frappe.log_error(f"UPSC Recall Generation Failed: {str(e)}")
+        frappe.throw(f"Failed to generate triggers: {str(e)}")
+
+
+@frappe.whitelist()
+def get_recall_history(limit=20):
+    """Retrieve recent UPSC recall trigger history."""
+    return frappe.get_all(
+        "UPSC Recall History",
+        fields=["name", "notes", "triggers", "model", "timestamp"],
+        order_by="timestamp desc",
+        limit=limit
+    )

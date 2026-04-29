@@ -37,7 +37,9 @@ class AppConfig(BaseModel):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
+    openrouter_api_key: str = ""
     model_name: str = "qwen3.5-9b"
+    upsc_recall_model: str = "openrouter/free"
 
     # --- LLM Tuning (UPSC Analyze Pipeline) ---
     analyze_max_tokens: int = 8192          # Token ceiling for classification, segmentation, aggregation

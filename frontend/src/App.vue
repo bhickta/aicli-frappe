@@ -45,6 +45,13 @@
         >
           🖼️
         </button>
+        <button 
+          :class="['nav-btn', { active: workspace === 'recall' }]" 
+          @click="workspace = 'recall'"
+          title="UPSC Recall"
+        >
+          🧠
+        </button>
         <!-- Settings Tab -->
         <button 
           :class="['nav-btn', { active: workspace === 'settings' }]" 
@@ -66,6 +73,7 @@
       <AudioStudio v-show="workspace === 'audio'" />
       <NewsStudio v-show="workspace === 'news'" />
       <ImageStudio v-show="workspace === 'image'" />
+      <RecallStudio v-show="workspace === 'recall'" />
       <SettingsStudio v-show="workspace === 'settings'" />
     </div>
   </div>
@@ -80,6 +88,7 @@ import NewsStudio from './components/NewsStudio.vue'
 import ImageStudio from './components/ImageStudio.vue'
 import OcrStudio from './components/OcrStudio.vue'
 import AudioStudio from './components/AudioStudio.vue'
+import RecallStudio from './components/RecallStudio.vue'
 import SettingsStudio from './components/SettingsStudio.vue'
 
 const workspace = ref('analyze')

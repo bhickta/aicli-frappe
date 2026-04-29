@@ -30,7 +30,10 @@
         "news_merge_max_tokens",
         "system_tab",
         "whisper_batch_size",
-        "whisper_beam_size"
+        "whisper_beam_size",
+        "upsc_recall_tab",
+        "openrouter_api_key",
+        "upsc_recall_model"
     ],
     "fields": [
         {
@@ -42,7 +45,7 @@
             "fieldname": "provider_type",
             "fieldtype": "Select",
             "label": "Provider Type",
-            "options": "ollama\nlms\nvllm\nopenai\nanthropic\ngemini"
+            "options": "ollama\nlms\nvllm\nopenai\nanthropic\ngemini\nopenrouter"
         },
         {
             "fieldname": "model_name",
@@ -72,6 +75,22 @@
             "fieldname": "lms_api_key",
             "fieldtype": "Password",
             "label": "LMS API Key"
+        },
+        {
+            "fieldname": "upsc_recall_tab",
+            "fieldtype": "Tab Break",
+            "label": "UPSC Recall"
+        },
+        {
+            "fieldname": "openrouter_api_key",
+            "fieldtype": "Password",
+            "label": "OpenRouter API Key"
+        },
+        {
+            "fieldname": "upsc_recall_model",
+            "fieldtype": "Data",
+            "label": "UPSC Recall Model",
+            "default": "openrouter/free"
         },
         {
             "fieldname": "upsc_analyze_tab",

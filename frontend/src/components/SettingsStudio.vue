@@ -98,6 +98,14 @@
               </div>
             </template>
 
+            <!-- OpenRouter Settings -->
+            <template v-if="settings.provider_type === 'openrouter'">
+              <div class="form-group span-full">
+                <label>OpenRouter API Key</label>
+                <input type="password" v-model="settings.openrouter_api_key" placeholder="sk-or-v1-..." />
+              </div>
+            </template>
+
             <div class="form-group span-full" style="margin-top: 16px;">
               <label>Preferred Base Model (Global Default)</label>
               <div class="select-wrapper" style="display: flex; gap: 8px; align-items: center;">
@@ -207,6 +215,20 @@
           </div>
         </template>
 
+        <!-- 4. UPSC Recall Settings -->
+        <template v-if="activeTab === 'recall'">
+          <h3 style="margin-bottom: 8px; color: var(--accent);">UPSC Recall Settings</h3>
+          <p class="description" style="margin-bottom: 16px;">
+            Configuration for the high-entropy broad recall trigger engine.
+          </p>
+          <div class="config-grid">
+            <div class="form-group span-full">
+              <label>Recall Model</label>
+              <input type="text" v-model="settings.upsc_recall_model" placeholder="openrouter/free" />
+            </div>
+          </div>
+        </template>
+
         <!-- 4. Global System Settings -->
         <template v-if="activeTab === 'system'">
           <h3 style="margin-bottom: 8px; color: var(--accent);">Global System Settings</h3>
@@ -290,6 +312,7 @@ const tabs = [
   { id: 'analyze', label: 'UPSC Analyze' },
   { id: 'video', label: 'Video Notes' },
   { id: 'news', label: 'News & Curation' },
+  { id: 'recall', label: 'UPSC Recall' },
   { id: 'system', label: 'Global System' }
 ]
 
@@ -309,6 +332,8 @@ const settings = ref({
   openai_api_key: '',
   anthropic_api_key: '',
   gemini_api_key: '',
+  openrouter_api_key: '',
+  upsc_recall_model: 'openrouter/free',
   analyze_step_models: {} as Record<string, string>,
   frappe_url: 'http://localhost:8000',
   frappe_api_key: 'admin_key',
