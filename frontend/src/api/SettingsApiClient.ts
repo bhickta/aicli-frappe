@@ -11,7 +11,7 @@ export class SettingsApiClient {
 
   async fetchProviders(): Promise<any> {
     // For now, providers are static or can be fetched via a method
-    return ['ollama', 'lmstudio', 'vllm', 'openai', 'anthropic', 'gemini']
+    return ['ollama', 'lms', 'lmstudio', 'vllm', 'openai', 'anthropic', 'gemini', 'openrouter']
   }
 
   async fetchModels(): Promise<any> {

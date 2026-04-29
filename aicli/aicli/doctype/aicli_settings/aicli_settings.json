@@ -45,7 +45,7 @@
             "fieldname": "provider_type",
             "fieldtype": "Select",
             "label": "Provider Type",
-            "options": "ollama\nlms\nvllm\nopenai\nanthropic\ngemini\nopenrouter"
+            "options": "ollama\nlms\nlmstudio\nvllm\nopenai\nanthropic\ngemini\nopenrouter"
         },
         {
             "fieldname": "model_name",
